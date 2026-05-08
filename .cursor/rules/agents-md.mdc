@@ -1,0 +1,40 @@
+---
+description: Enforce AGENTS.md repo map, product rules, and memory log updates
+alwaysApply: true
+---
+
+# AGENTS.md is mandatory context
+
+Read **`AGENTS.md`** for repo navigation, product rules (subscription vs purchase access), conventions, and the append-only **Agent memory log**.
+
+If instructions conflict, prefer:
+
+1. the codebase and `AGENTS.md`
+2. then the current chat prompt
+
+`submission.md` is intentionally **gitignored** (private write-up for the takehome submission).
+
+## Product rules to preserve
+
+- **Subscription** grants access to **all books** while active.
+- **Non-subscribed** users can only access books they **purchased**.
+- The API should make “locked vs accessible” clear to the frontend (e.g. `isAccessible`, `accessReason`).
+- Purchase endpoints should be **idempotent** for “already owned”.
+
+## Architecture expectations
+
+- Keep controllers thin; put business rules in services.
+- Centralize access control checks in one module (policy/guard) and reuse them.
+- Validate inputs consistently; return consistent error shapes and correct HTTP codes.
+
+## Repo map maintenance
+
+When you add/rename top-level folders, modules, or materially change the architecture:
+
+- update **`AGENTS.md` → Repo map**
+- append **one line** to **`AGENTS.md` → Agent memory log**
+
+## No assistant attribution in git metadata
+
+Do not add tool/assistant attribution to PR titles/bodies or commit messages.
+
