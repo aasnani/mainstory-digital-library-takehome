@@ -1,4 +1,4 @@
-# Mainstory Digital Library — agent context
+# Mainstory Digital Library (Go) — agent context
 
 This repo is a takehome MVP for a paid digital storybook library with two monetization models:
 
@@ -13,32 +13,16 @@ This file exists to keep implementation decisions **clear, consistent, and revie
 
 ## Repo map (quick navigation)
 
-This repo will evolve, but keep this structure stable unless there’s a clear reason to change it.
+This section is intentionally **non-speculative**.
+
+- Only list files/folders that **exist in the repo right now**.
+- When new top-level directories are created (e.g. `cmd/`, `internal/`, `web/`), update this map in the same change series.
 
 - **Entry points**
-  - `README.md`: high-level overview, how to run locally, env vars, and deployment links.
+  - `README.md`: high-level overview.
   - `submission.md` (**gitignored**, local): product + system design write-up required by the takehome prompt.
   - `AGENTS.md`: this file (repo map + conventions + agent memory log).
   - `.cursor/rules/agents-md.mdc`: Cursor rule to enforce this file’s upkeep (may be gitignored).
-
-- **Backend**
-  - `backend/` (preferred) or `server/`: Node.js service
-    - `src/` application code
-    - `src/modules/` (or `src/domains/`): `auth`, `users`, `books`, `payments`, `entitlements`
-    - `src/db/`: database client + migrations / schema
-    - `src/api/`: HTTP routing/controllers
-    - `src/services/`: domain services (purchase/subscription/access control)
-    - `src/policies/` (or `src/access/`): access-control checks / guards
-    - `src/lib/`: shared utils (error handling, validation, time, ids)
-    - `test/` or `src/**/__tests__/`: tests
-
-- **Frontend**
-  - `frontend/`: Lovable (or similar) generated UI connecting to backend
-    - book list/detail, login, subscribe/purchase flows, CRUD admin-ish flows
-
-- **Infra / deploy (optional for MVP)**
-  - `docker-compose.yml`: local DB + services
-  - `scripts/`: dev scripts (seed, reset DB, etc.)
 
 Update this map whenever you add/rename top-level structure or domain boundaries.
 
@@ -85,16 +69,17 @@ Access checks must exist in **one** central place (policy/guard/service), and be
 - Put permission checks in **policies/guards** and keep them **pure** where possible.
 - Model database access behind a small **repository/data-access** layer.
 
-### Data model (target)
+### Data model (non-speculative)
 
 At minimum the backend should represent:
 
 - `users`
 - `books`
-- `subscriptions` (current status + period fields if needed)
-- `purchases` (user ↔ book)
+- `entitlements` (expresses access via subscription and/or book purchase)
 
-Prefer unique constraints that make idempotency easy (e.g. unique `(userId, bookId)` in purchases).
+Do not assume key shapes, field names, or specific schema until the database layer is implemented.
+
+Prefer constraints that make idempotency easy (e.g. “purchase this book” is safe to retry), but document the actual approach once the DB is chosen.
 
 ### Validation and errors
 
@@ -110,6 +95,16 @@ Prefer unique constraints that make idempotency easy (e.g. unique `(userId, book
 
 - Use a simple approach (e.g. “login returns token”, token maps to user).
 - Never trust client-provided `userId` directly; derive from auth context.
+
+---
+
+## Go conventions (engineering)
+
+- **Formatting**: `gofmt` always.
+- **Imports**: standard library, then third-party, then module-local.
+- **Errors**: wrap with context (e.g. `%w`) at boundaries; return typed/domain errors where it helps HTTP mapping.
+- **Testing**: favor table-driven tests for access-control and entitlement evaluation.
+- **Package design**: avoid cyclic imports; keep domain logic in `internal/` once it exists.
 
 ---
 
@@ -134,4 +129,5 @@ Do **not** add “AI-generated” attribution to commit messages or PR text.
 ### Log
 
 - **2026-05-08** `(docs) Add AGENTS.md and Cursor rule scaffold — establishes repo map, product rules, and upkeep expectations for takehome MVP [files: AGENTS.md, .cursor/rules/agents-md.mdc]`
+- **2026-05-08** `(docs) Make AGENTS.md Go-specific and non-speculative — removes assumed structure/schema; map updates only when directories actually exist [files: AGENTS.md, .cursor/rules/agents-md.mdc]`
 

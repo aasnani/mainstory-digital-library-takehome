@@ -29,6 +29,11 @@ If instructions conflict, prefer:
 
 ## Repo map maintenance
 
+The **Repo map** in `AGENTS.md` must be **non-speculative**:
+
+- Do not add planned directories or files before they exist.
+- When new directories/files are created (e.g. `cmd/`, `internal/`, `web/`, `migrations/`), update the map in the same change series.
+
 When you add/rename top-level folders, modules, or materially change the architecture:
 
 - update **`AGENTS.md` → Repo map**
