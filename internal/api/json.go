@@ -47,6 +47,10 @@ func WriteErrorFromDomain(c *gin.Context, err error) {
 		WriteError(c, http.StatusConflict, "conflict", "cannot delete user with existing entitlements")
 	case domain.ErrInvalidBook:
 		WriteError(c, http.StatusBadRequest, "validation_error", "invalid book")
+	case domain.ErrSearchTermTooShort:
+		WriteError(c, http.StatusBadRequest, "validation_error", "use at least 2 characters for search filters (q, title, author)")
+	case domain.ErrInvalidCatalogFilters:
+		WriteError(c, http.StatusBadRequest, "validation_error", "invalid catalog filters (check price range)")
 	case domain.ErrInvalidPrice:
 		WriteError(c, http.StatusBadRequest, "validation_error", "invalid price")
 	case domain.ErrInvalidEntitlementType:

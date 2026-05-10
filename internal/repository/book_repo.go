@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,7 +18,9 @@ import (
 type BookStore interface {
 	Create(ctx context.Context, title, description, author, genre string, isFiction bool, publishedDate interface{}, language string, priceCents int32, content string) (*domain.Book, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Book, error)
-	List(ctx context.Context, limit, offset int32) ([]domain.Book, error)
+	// ListCatalog returns catalog columns only (never loads content TEXT).
+	ListCatalog(ctx context.Context, filter domain.BookListFilter, limit, offset int32) ([]domain.Book, error)
+	GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Book, error)
 	Update(ctx context.Context, id uuid.UUID, title, description, author, genre string, isFiction bool, publishedDate interface{}, language string, priceCents int32, content string) (*domain.Book, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -50,24 +54,91 @@ func (r *BookRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Boo
 	return b, err
 }
 
-func (r *BookRepository) List(ctx context.Context, limit, offset int32) ([]domain.Book, error) {
-	const q = `
-		SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents, ''
-		FROM books
-		ORDER BY added_at DESC
-		LIMIT $1 OFFSET $2`
-	rows, err := r.pool.Query(ctx, q, limit, offset)
+func (r *BookRepository) ListCatalog(ctx context.Context, filter domain.BookListFilter, limit, offset int32) ([]domain.Book, error) {
+	var b strings.Builder
+	b.WriteString(`SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents
+		FROM books WHERE 1=1`)
+	args := make([]interface{}, 0, 16)
+	n := 1
+	if filter.Q != "" {
+		pat := "%" + filter.Q + "%"
+		fmt.Fprintf(&b, ` AND (title ILIKE $%d OR author ILIKE $%d OR genre ILIKE $%d)`, n, n+1, n+2)
+		args = append(args, pat, pat, pat)
+		n += 3
+	}
+	if filter.Title != "" {
+		fmt.Fprintf(&b, ` AND title ILIKE $%d`, n)
+		args = append(args, "%"+filter.Title+"%")
+		n++
+	}
+	if filter.Author != "" {
+		fmt.Fprintf(&b, ` AND author ILIKE $%d`, n)
+		args = append(args, "%"+filter.Author+"%")
+		n++
+	}
+	if filter.Genre != "" {
+		fmt.Fprintf(&b, ` AND genre ILIKE $%d`, n)
+		args = append(args, "%"+filter.Genre+"%")
+		n++
+	}
+	if filter.Language != "" {
+		fmt.Fprintf(&b, ` AND lower(language) = lower($%d)`, n)
+		args = append(args, filter.Language)
+		n++
+	}
+	if filter.IsFiction != nil {
+		fmt.Fprintf(&b, ` AND is_fiction = $%d`, n)
+		args = append(args, *filter.IsFiction)
+		n++
+	}
+	if filter.MinPriceCents != nil {
+		fmt.Fprintf(&b, ` AND price_cents >= $%d`, n)
+		args = append(args, *filter.MinPriceCents)
+		n++
+	}
+	if filter.MaxPriceCents != nil {
+		fmt.Fprintf(&b, ` AND price_cents <= $%d`, n)
+		args = append(args, *filter.MaxPriceCents)
+		n++
+	}
+	fmt.Fprintf(&b, ` ORDER BY added_at DESC LIMIT $%d OFFSET $%d`, n, n+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, b.String(), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []domain.Book
 	for rows.Next() {
-		var b domain.Book
-		if err := rows.Scan(&b.ID, &b.Title, &b.Description, &b.Author, &b.Genre, &b.IsFiction, &b.PublishedDate, &b.AddedAt, &b.Language, &b.PriceCents, &b.Content); err != nil {
+		var bk domain.Book
+		if err := rows.Scan(&bk.ID, &bk.Title, &bk.Description, &bk.Author, &bk.Genre, &bk.IsFiction, &bk.PublishedDate, &bk.AddedAt, &bk.Language, &bk.PriceCents); err != nil {
 			return nil, err
 		}
-		out = append(out, b)
+		out = append(out, bk)
+	}
+	return out, rows.Err()
+}
+
+func (r *BookRepository) GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Book, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	const q = `
+		SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents
+		FROM books WHERE id = ANY($1::uuid[])`
+	rows, err := r.pool.Query(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Book
+	for rows.Next() {
+		var bk domain.Book
+		if err := rows.Scan(&bk.ID, &bk.Title, &bk.Description, &bk.Author, &bk.Genre, &bk.IsFiction, &bk.PublishedDate, &bk.AddedAt, &bk.Language, &bk.PriceCents); err != nil {
+			return nil, err
+		}
+		out = append(out, bk)
 	}
 	return out, rows.Err()
 }
@@ -80,11 +151,11 @@ func (r *BookRepository) Update(ctx context.Context, id uuid.UUID, title, descri
 		WHERE id = $1
 		RETURNING id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents, content`
 	row := r.pool.QueryRow(ctx, q, id, title, description, author, genre, isFiction, publishedDate, language, priceCents, content)
-	b, err := scanBook(row)
+	bk, err := scanBook(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
-	return b, err
+	return bk, err
 }
 
 func (r *BookRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -103,12 +174,12 @@ func (r *BookRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func scanBook(row pgx.Row) (*domain.Book, error) {
-	var b domain.Book
-	err := row.Scan(&b.ID, &b.Title, &b.Description, &b.Author, &b.Genre, &b.IsFiction, &b.PublishedDate, &b.AddedAt, &b.Language, &b.PriceCents, &b.Content)
+	var bk domain.Book
+	err := row.Scan(&bk.ID, &bk.Title, &bk.Description, &bk.Author, &bk.Genre, &bk.IsFiction, &bk.PublishedDate, &bk.AddedAt, &bk.Language, &bk.PriceCents, &bk.Content)
 	if err != nil {
 		return nil, err
 	}
-	return &b, nil
+	return &bk, nil
 }
 
 var _ BookStore = (*BookRepository)(nil)

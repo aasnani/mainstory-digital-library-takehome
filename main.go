@@ -61,6 +61,7 @@ func main() {
 	authorized := v1.Group("")
 	authorized.Use(middleware.BearerAuth(cfg))
 	authorized.GET("/users/me", userH.Me)
+	authorized.GET("/users/me/library", bookH.MyLibrary)
 	authorized.PATCH("/users/me", userH.PatchMe)
 	authorized.GET("/users", userH.List)
 	authorized.GET("/users/:id", userH.GetByID)

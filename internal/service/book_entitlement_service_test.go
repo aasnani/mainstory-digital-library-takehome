@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,18 +46,62 @@ func (f *fakeBookRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Book,
 	return cloneBookPtr(b), nil
 }
 
-func (f *fakeBookRepo) List(ctx context.Context, limit, offset int32) ([]domain.Book, error) {
-	if int(offset) >= len(f.list) {
+func (f *fakeBookRepo) ListCatalog(ctx context.Context, filter domain.BookListFilter, limit, offset int32) ([]domain.Book, error) {
+	var matched []domain.Book
+	for _, b := range f.list {
+		bk := b
+		bk.Content = ""
+		if filter.Q != "" {
+			q := strings.ToLower(filter.Q)
+			if !strings.Contains(strings.ToLower(bk.Title), q) &&
+				!strings.Contains(strings.ToLower(bk.Author), q) &&
+				!strings.Contains(strings.ToLower(bk.Genre), q) {
+				continue
+			}
+		}
+		if filter.Title != "" && !strings.Contains(strings.ToLower(bk.Title), strings.ToLower(filter.Title)) {
+			continue
+		}
+		if filter.Author != "" && !strings.Contains(strings.ToLower(bk.Author), strings.ToLower(filter.Author)) {
+			continue
+		}
+		if filter.Genre != "" && !strings.Contains(strings.ToLower(bk.Genre), strings.ToLower(filter.Genre)) {
+			continue
+		}
+		if filter.Language != "" && strings.ToLower(bk.Language) != strings.ToLower(filter.Language) {
+			continue
+		}
+		if filter.IsFiction != nil && bk.IsFiction != *filter.IsFiction {
+			continue
+		}
+		if filter.MinPriceCents != nil && bk.PriceCents < *filter.MinPriceCents {
+			continue
+		}
+		if filter.MaxPriceCents != nil && bk.PriceCents > *filter.MaxPriceCents {
+			continue
+		}
+		matched = append(matched, bk)
+	}
+	if int(offset) >= len(matched) {
 		return nil, nil
 	}
 	end := int(offset) + int(limit)
-	if end > len(f.list) {
-		end = len(f.list)
+	if end > len(matched) {
+		end = len(matched)
 	}
 	out := make([]domain.Book, end-int(offset))
-	copy(out, f.list[int(offset):end])
-	for i := range out {
-		out[i].Content = ""
+	copy(out, matched[int(offset):end])
+	return out, nil
+}
+
+func (f *fakeBookRepo) GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Book, error) {
+	var out []domain.Book
+	for _, id := range ids {
+		if b, ok := f.byID[id]; ok {
+			c := *b
+			c.Content = ""
+			out = append(out, c)
+		}
 	}
 	return out, nil
 }
@@ -182,6 +227,26 @@ func (f *fakeEntRepo) HasActivePurchase(ctx context.Context, userID, bookID uuid
 	return f.purchase[keyPurchase(userID, bookID)], nil
 }
 
+func (f *fakeEntRepo) GetActiveSubscriptionEntitlement(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
+	for _, e := range f.entByUser[userID] {
+		if e.Type == domain.EntitlementSubscription && e.Status == domain.EntitlementActive {
+			c := e
+			return &c, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeEntRepo) ListActivePurchasesByUser(ctx context.Context, userID uuid.UUID) ([]domain.Entitlement, error) {
+	var out []domain.Entitlement
+	for _, e := range f.entByUser[userID] {
+		if e.Type == domain.EntitlementSinglePurchase && e.Status == domain.EntitlementActive && e.BookID != nil {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeEntRepo) BookExists(ctx context.Context, bookID uuid.UUID) (bool, error) {
 	return f.books[bookID], nil
 }
@@ -209,7 +274,7 @@ func TestBookService_MemberList_SubscriptionGrantsAccess(t *testing.T) {
 	er.subs[u] = true
 
 	svc := NewBookService(br, er)
-	items, err := svc.List(context.Background(), u, domain.RoleMember, 50, 0)
+	items, err := svc.List(context.Background(), u, domain.RoleMember, domain.BookListFilter{}, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,5 +394,50 @@ func TestEntitlementService_MemberCannotReadOthersEntitlement(t *testing.T) {
 	_, err := svc.Get(context.Background(), u, domain.RoleMember, eid)
 	if err != domain.ErrForbidden {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestValidateBookListFilter_ShortSearch(t *testing.T) {
+	f := domain.BookListFilter{Q: "a"}
+	if err := ValidateBookListFilter(f); err != domain.ErrSearchTermTooShort {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestBookService_GuestList_AllLocked(t *testing.T) {
+	br, er := newFakeCatalog()
+	bid := uuid.New()
+	br.byID[bid] = &domain.Book{ID: bid, Title: "Pub", Language: "en", PriceCents: 1, AddedAt: time.Now()}
+	br.list = []domain.Book{*br.byID[bid]}
+
+	svc := NewBookService(br, er)
+	items, err := svc.List(context.Background(), uuid.Nil, "", domain.BookListFilter{}, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].IsAccessible || items[0].AccessReason != domain.AccessReasonLocked {
+		t.Fatalf("%+v", items)
+	}
+}
+
+func TestBookService_MyLibrary(t *testing.T) {
+	br, er := newFakeCatalog()
+	u := uuid.New()
+	bid := uuid.New()
+	br.byID[bid] = &domain.Book{ID: bid, Title: "Owned", Content: "secret", Language: "en", PriceCents: 9, AddedAt: time.Now()}
+	br.list = []domain.Book{*br.byID[bid]}
+	er.books[bid] = true
+	_, _ = er.Create(context.Background(), u, &bid, domain.EntitlementSinglePurchase, domain.EntitlementActive, nil)
+
+	svc := NewBookService(br, er)
+	lib, err := svc.MyLibrary(context.Background(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib.Subscription != nil {
+		t.Fatal("expected no subscription")
+	}
+	if len(lib.Purchases) != 1 || lib.Purchases[0].Book.Title != "Owned" || lib.Purchases[0].Book.Content != "" {
+		t.Fatalf("%+v", lib)
 	}
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -18,14 +19,44 @@ func NewBookService(books repository.BookStore, ents repository.EntitlementStore
 	return &BookService{books: books, ents: ents}
 }
 
-// List returns catalog rows with per-book access for MEMBER; staff roles see full catalog access flags.
-func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, limit, offset int32) ([]domain.BookListItem, error) {
-	rows, err := s.books.List(ctx, limit, offset)
+// ValidateBookListFilter returns an error if search params are too short or price range invalid.
+func ValidateBookListFilter(f domain.BookListFilter) error {
+	check := func(s string) error {
+		if s == "" {
+			return nil
+		}
+		if utf8.RuneCountInString(s) < domain.MinSearchRunes {
+			return domain.ErrSearchTermTooShort
+		}
+		return nil
+	}
+	if err := check(f.Q); err != nil {
+		return err
+	}
+	if err := check(f.Title); err != nil {
+		return err
+	}
+	if err := check(f.Author); err != nil {
+		return err
+	}
+	if f.MinPriceCents != nil && f.MaxPriceCents != nil && *f.MinPriceCents > *f.MaxPriceCents {
+		return domain.ErrInvalidCatalogFilters
+	}
+	return nil
+}
+
+// List returns catalog rows (never includes content). Guests (nil user id, empty role) and members get entitlement-based flags; librarian/admin always accessible when JWT present.
+func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, filter domain.BookListFilter, limit, offset int32) ([]domain.BookListItem, error) {
+	if err := ValidateBookListFilter(filter); err != nil {
+		return nil, err
+	}
+	rows, err := s.books.ListCatalog(ctx, filter, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]domain.BookListItem, 0, len(rows))
 	for _, b := range rows {
+		b.Content = ""
 		item := domain.BookListItem{Book: b}
 		switch role {
 		case domain.RoleLibrarian, domain.RoleAdmin:
@@ -40,6 +71,58 @@ func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, l
 			item.AccessReason = reason
 		}
 		out = append(out, item)
+	}
+	return out, nil
+}
+
+// MyLibrary returns active subscription (if any) and per-book purchase rows with catalog metadata (no content).
+func (s *BookService) MyLibrary(ctx context.Context, userID uuid.UUID) (*domain.MyLibrary, error) {
+	sub, err := s.ents.GetActiveSubscriptionEntitlement(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	purchases, err := s.ents.ListActivePurchasesByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(purchases))
+	for i := range purchases {
+		if purchases[i].BookID != nil {
+			ids = append(ids, *purchases[i].BookID)
+		}
+	}
+	books, err := s.books.GetCatalogByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[uuid.UUID]domain.Book, len(books))
+	for _, b := range books {
+		b.Content = ""
+		byID[b.ID] = b
+	}
+	rows := make([]domain.LibraryPurchaseRow, 0, len(purchases))
+	for i := range purchases {
+		e := purchases[i]
+		if e.BookID == nil {
+			continue
+		}
+		bk, ok := byID[*e.BookID]
+		if !ok {
+			continue
+		}
+		rows = append(rows, domain.LibraryPurchaseRow{
+			Entitlement: e,
+			Book: domain.BookListItem{
+				Book:         bk,
+				IsAccessible: true,
+				AccessReason: domain.AccessReasonPurchased,
+			},
+		})
+	}
+	out := &domain.MyLibrary{Purchases: rows}
+	if sub != nil {
+		c := *sub
+		out.Subscription = &c
 	}
 	return out, nil
 }

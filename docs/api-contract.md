@@ -120,7 +120,7 @@ Errors use this JSON shape:
 
 | Code | Typical cause |
 |------|----------------|
-| **400** | Bad JSON, invalid path/query params, validation (e.g. password length). Empty **`PATCH`** body for self. **`current_password`** without **`new_password`** (or vice versa). Password fields on **`PATCH`** for someone else’s id. |
+| **400** | Bad JSON, invalid path/query params, validation (e.g. password length). Empty **`PATCH`** body for self. **`current_password`** without **`new_password`** (or vice versa). Password fields on **`PATCH`** for someone else’s id. Book list search: **`q`**, **`title`**, or **`author`** shorter than **2** characters. Invalid **`min_price_cents`** / **`max_price_cents`** range. |
 | **401** | Missing or bad `Authorization`, wrong login credentials, wrong **`current_password`** when changing password, expired token. |
 | **403** | Logged in but not allowed (e.g. non-admin listing users). **`PATCH`** on yourself with **`email`** or **`role`**. Creating/updating books or entitlements without permission. |
 | **404** | Resource not found (e.g. unknown user id, unknown book when purchasing). |
@@ -157,6 +157,7 @@ Errors use this JSON shape:
 | Method | Path | Auth | Body | Success |
 |--------|------|------|------|---------|
 | `GET` | `/api/v1/users/me` | Bearer | — | **200** user |
+| `GET` | `/api/v1/users/me/library` | Bearer | — | **200** “my purchases” payload (see below). |
 | `PATCH` | `/api/v1/users/me` | Bearer | Self: **`current_password`** + **`new_password`** only (see above). No **`email`** / **`role`**. | **200** user |
 | `GET` | `/api/v1/users` | Bearer (**ADMIN**) | Query: `limit` (1–100, default 50), `offset` (≥0, default 0) | **200** `{ "users": User[] }` |
 | `GET` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | — | **200** user |
@@ -173,13 +174,34 @@ Errors use this JSON shape:
 }
 ```
 
+### My library (single call)
+
+**`GET /api/v1/users/me/library`** returns everything needed for a “my purchases / subscription” page in one response:
+
+- **`subscription`**: active subscription entitlement object, or omitted / **`null`** if none.
+- **`purchases`**: array of **`{ "entitlement", "book" }`** for each **active** per-book purchase. **`book`** is catalog metadata only (**no** **`content`**), with **`is_accessible`: true** and **`access_reason`**: **`PURCHASED`**.
+
+Browsing the full catalog stays on **`GET /books`** (paginated + filterable). This endpoint does not load heavy **`content`** fields.
+
 ### Books
 
-Catalog fields include **`title`**, **`description`**, **`author`**, **`genre`**, **`is_fiction`**, **`published_date`**, **`added_at`**, **`language`**, **`price_cents`**. Full-text **`content`** is gated for **MEMBER** as described above.
+Catalog fields include **`title`**, **`description`**, **`author`**, **`genre`**, **`is_fiction`**, **`published_date`**, **`added_at`**, **`language`**, **`price_cents`**. **`GET /books`** and **`GET /books/:id`** for **MEMBER** when locked omit **`content`** as described above; the list endpoint **never** reads **`content`** from the database (safe for large blobs).
+
+**`GET /api/v1/books`** — query parameters (all optional unless noted; combine with **AND**):
+
+| Param | Meaning |
+|-------|---------|
+| **`limit`** | 1–100, default **50** |
+| **`offset`** | ≥ 0, default **0** |
+| **`q`** | Substring match on **title**, **author**, or **genre** (case-insensitive). **≥ 2** characters if present (use for typeahead: debounce client-side so you only call once the user typed enough). |
+| **`title`**, **`author`** | Same minimum length as **`q`** when non-empty. |
+| **`genre`**, **`language`** | Filter (genre substring; language case-insensitive exact). No minimum length. |
+| **`is_fiction`** | **`true`** / **`false`** |
+| **`min_price_cents`**, **`max_price_cents`** | Inclusive bounds; **`min`** must not exceed **`max`**. |
 
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
-| `GET` | `/api/v1/books` | Bearer | Query **`limit`** (1–100, default 50), **`offset`**. Response **`{ "books": BookListItem[] }`**. Each item includes **`is_accessible`** and **`access_reason`** (**`SUBSCRIPTION`**, **`PURCHASED`**, **`LOCKED`**) for **MEMBER**. |
+| `GET` | `/api/v1/books` | Bearer | Query params above. Response **`{ "books": BookListItem[] }`**. No **`content`** in list rows. Each item includes **`is_accessible`** and **`access_reason`** (**`SUBSCRIPTION`**, **`PURCHASED`**, **`LOCKED`**) for **MEMBER**; staff see the same shape with correct access flags. |
 | `GET` | `/api/v1/books/:id` | Bearer | **MEMBER**: **`content`** present only when entitled. **LIBRARIAN** / **ADMIN**: full book including **`content`**. |
 | `POST` | `/api/v1/books` | Bearer **LIBRARIAN** or **ADMIN** | Create catalog row (JSON body includes **`title`**, **`price_cents`**, optional metadata and **`content`**). **201**. |
 | `PATCH` | `/api/v1/books/:id` | Bearer **LIBRARIAN** or **ADMIN** | Full replacement-style payload (same shape as create). **200**. |
@@ -207,9 +229,10 @@ Types: **`SINGLE_PURCHASE`** (requires **`book_id`**) or **`SUBSCRIPTION`** (**o
 ## Integration checklist
 
 1. Read **`API base URL`** from build/runtime config and prefix all paths.
-2. After login/register, save **`access_token`** and send **`Authorization: Bearer`** on **`/api/v1/***`** except **`/auth/*`**.
+2. After login/register, save **`access_token`** and send **`Authorization: Bearer`** on **`/api/v1/*`** except **`/auth/*`**.
 3. On **401**, clear the token and show auth UI.
 4. Use **`GET /users/me`** as the source of current user identity.
 5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.
 6. To change password, **`PATCH`** your profile with **`current_password`** and **`new_password`**; then use the new password on the next login (existing JWTs stay valid until expiry).
-7. List books with **`GET /books`**; use **`is_accessible`** / **`access_reason`** for locked UI. Purchase or subscribe via **`POST /entitlements`** before reading **`GET /books/:id`** content as a **MEMBER**.
+7. Main catalog: **`GET /books`** with **`limit`** / **`offset`** and optional filters; debounce search inputs and only send **`q`** / **`title`** / **`author`** when length ≥ **2**. Use **`is_accessible`** / **`access_reason`** for locked UI.
+8. “My library” page: **`GET /users/me/library`** once; no book **`content`** in that payload. Purchase or subscribe via **`POST /entitlements`** before reading **`GET /books/:id`** content as a **MEMBER**.
