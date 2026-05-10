@@ -1,0 +1,9 @@
+ALTER TABLE users
+    ADD COLUMN role VARCHAR(50) NOT NULL DEFAULT 'MEMBER';
+
+ALTER TABLE users
+    ADD CONSTRAINT users_role_check
+        CHECK (role IN ('MEMBER', 'LIBRARIAN', 'ADMIN'));
+
+ALTER TABLE books
+    ADD COLUMN content TEXT NOT NULL DEFAULT '';
