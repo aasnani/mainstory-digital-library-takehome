@@ -117,7 +117,7 @@ go build -tags netgo -ldflags '-s -w' -o app
 
 ## Database migrations (Flyway)
 
-Versioned SQL lives under `db/migration/` (for example `V1__initial_schema.sql`, `V2__users_password_hash.sql`). Apply with the Flyway CLI pointed at your Postgres URL; see the Flyway docs for `-locations` and JDBC URLs.
+Versioned SQL lives under `db/migration/` (for example `V1__initial_schema.sql`, `V2__users_password_hash.sql`, `V3__subscription_period_renewal_cancel_at.sql`). Apply with the Flyway CLI pointed at your Postgres URL; see the Flyway docs for `-locations` and JDBC URLs.
 
 **`V2__users_password_hash.sql`** adds **`password_hash`** to **`users`**. If an older dev database still has email-only users without hashes, clear or migrate those rows before applying **`V2`** (the migration expects every user row to gain a password hash).
 
