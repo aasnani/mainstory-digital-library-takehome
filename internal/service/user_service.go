@@ -25,12 +25,19 @@ func (s *UserService) IssueToken(u *domain.User) (string, error) {
 	return auth.Sign(s.cfg, u.ID, u.Role)
 }
 
-func (s *UserService) Register(ctx context.Context, email string) (*domain.User, string, error) {
+func (s *UserService) Register(ctx context.Context, email, password string) (*domain.User, string, error) {
 	if err := domain.ValidateEmail(email); err != nil {
 		return nil, "", err
 	}
+	if err := domain.ValidatePassword(password); err != nil {
+		return nil, "", err
+	}
 	email = domain.NormalizeEmail(email)
-	u, err := s.repo.Create(ctx, email, domain.RoleMember)
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, "", err
+	}
+	u, err := s.repo.Create(ctx, email, domain.RoleMember, hash)
 	if err != nil {
 		return nil, "", err
 	}
@@ -41,16 +48,26 @@ func (s *UserService) Register(ctx context.Context, email string) (*domain.User,
 	return u, tok, nil
 }
 
-func (s *UserService) Login(ctx context.Context, email string) (*domain.User, string, error) {
+func (s *UserService) Login(ctx context.Context, email, password string) (*domain.User, string, error) {
 	if err := domain.ValidateEmail(email); err != nil {
 		return nil, "", err
 	}
+	if password == "" {
+		return nil, "", domain.ErrUnauthorized
+	}
 	email = domain.NormalizeEmail(email)
-	u, err := s.repo.GetByEmail(ctx, email)
+	creds, err := s.repo.GetAuthCredentialsByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, "", domain.ErrUnauthorized
 		}
+		return nil, "", err
+	}
+	if !auth.PasswordMatches(password, creds.PasswordHash) {
+		return nil, "", domain.ErrUnauthorized
+	}
+	u, err := s.repo.GetByID(ctx, creds.UserID)
+	if err != nil {
 		return nil, "", err
 	}
 	tok, err := s.IssueToken(u)

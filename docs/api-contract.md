@@ -6,7 +6,7 @@ Single source of truth for browser clients. **Update this file in the same chang
 
 - **Audience**: SPAs (e.g. Lovable-generated UI) and integrators.
 - **Base path**: `/api/v1` (all JSON APIs below are under this prefix unless noted).
-- **Auth model**: **Mocked** — no real passwords. Register and login use **email only**. Production would replace this with real credentials and token refresh.
+- **Auth model**: Passwords are sent **only over HTTPS** in JSON (`password` field); the API stores **bcrypt hashes** server-side and never returns passwords. Clients send plaintext passwords like typical web apps (TLS protects in transit).
 
 ## Environment
 
@@ -20,7 +20,7 @@ Single source of truth for browser clients. **Update this file in the same chang
 
 **Frontend**: configure a single **API base URL** (e.g. `VITE_API_BASE_URL` or your host’s env) and prefix paths below with it, e.g. `https://api.example.com/api/v1/auth/login`.
 
-**Operators**: how to obtain connection strings and secrets, longer **`curl`** walkthroughs, and **`go test`** / Postgres integration tests are documented in **[README.md](../README.md)** (keep this file aligned when API behavior changes).
+**Operators**: how to obtain connection strings and secrets, longer **`curl`** walkthroughs, and **`go test`** are documented in **[README.md](../README.md)** (keep this file aligned when API behavior changes).
 
 ## Authentication
 
@@ -36,7 +36,7 @@ There must be exactly one space after `Bearer`.
 
 ### Obtaining tokens
 
-Call **`POST /api/v1/auth/register`** or **`POST /api/v1/auth/login`** with body `{ "email": "user@example.com" }`.
+Call **`POST /api/v1/auth/register`** or **`POST /api/v1/auth/login`** with body `{ "email": "user@example.com", "password": "..." }`. Passwords must be **8–72 characters** (bcrypt limit). Passwords are **never** included in responses.
 
 Success response (**register**: HTTP **201**, **login**: HTTP **200**):
 
@@ -87,7 +87,7 @@ If the UI origin differs from the API origin, the backend must send `Access-Cont
 
 - **Register** creates **`MEMBER`** only.
 - **ADMIN** (and role changes by admins) are enforced server-side.
-- **There is no API that bootstraps admin.** Operators promote users via SQL (see README). After promotion, **`POST /auth/login`** returns a JWT whose **`role`** claim is **`ADMIN`**.
+- **There is no API that bootstraps admin.** Operators promote users via SQL (see README). After promotion, **`POST /auth/login`** with that user’s **email and password** returns a JWT whose **`role`** claim is **`ADMIN`**.
 
 ## Error envelope
 
@@ -106,8 +106,8 @@ Failed requests return JSON:
 
 | Code | When |
 |------|------|
-| **400** | Invalid JSON, invalid UUID path param, invalid query (`limit`/`offset`), validation errors. |
-| **401** | Missing/invalid `Authorization`, unknown email on login, expired JWT. |
+| **400** | Invalid JSON, invalid UUID path param, invalid query (`limit`/`offset`), validation errors (including password not **8–72** characters on register). |
+| **401** | Missing/invalid `Authorization`, wrong email/password on login, expired JWT. |
 | **403** | Authenticated but not allowed (e.g. non-admin listing users, self attempting role change). |
 | **404** | User id not found. |
 | **409** | Email already registered; email conflict on update; **cannot delete user** when **entitlements** rows reference that user. |
@@ -125,8 +125,8 @@ Failed requests return JSON:
 
 | Method | Path | Auth | Body | Success |
 |--------|------|------|------|---------|
-| POST | `/api/v1/auth/register` | none | `{ "email": string }` | **201** + auth payload + user |
-| POST | `/api/v1/auth/login` | none | `{ "email": string }` | **200** + auth payload + user |
+| POST | `/api/v1/auth/register` | none | `{ "email": string, "password": string }` | **201** + auth payload + user |
+| POST | `/api/v1/auth/login` | none | `{ "email": string, "password": string }` | **200** + auth payload + user |
 
 ### Users
 
@@ -164,7 +164,7 @@ Register and call **`/users/me`**:
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/auth/register \
   -H 'Content-Type: application/json' \
-  -d '{"email":"reader@example.com"}'
+  -d '{"email":"reader@example.com","password":"securepass123"}'
 
 TOKEN='<paste access_token from response>'
 
@@ -177,7 +177,7 @@ Login:
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"reader@example.com"}'
+  -d '{"email":"reader@example.com","password":"securepass123"}'
 ```
 
 Admin list (after promoting user to **ADMIN** in the database — see README):

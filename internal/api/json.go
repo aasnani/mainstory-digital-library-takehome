@@ -27,6 +27,8 @@ func WriteErrorFromDomain(c *gin.Context, err error) {
 		WriteError(c, http.StatusBadRequest, "validation_error", "invalid email")
 	case domain.ErrInvalidRole:
 		WriteError(c, http.StatusBadRequest, "validation_error", "invalid role")
+	case domain.ErrInvalidPassword:
+		WriteError(c, http.StatusBadRequest, "validation_error", "password must be 8–72 characters")
 	case domain.ErrNotFound:
 		WriteError(c, http.StatusNotFound, "not_found", "resource not found")
 	case domain.ErrConflict:

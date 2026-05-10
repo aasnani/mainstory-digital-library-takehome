@@ -23,12 +23,12 @@ func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
 	return &UserRepository{pool: pool}
 }
 
-func (r *UserRepository) Create(ctx context.Context, email, role string) (*domain.User, error) {
+func (r *UserRepository) Create(ctx context.Context, email, role, passwordHash string) (*domain.User, error) {
 	const q = `
-		INSERT INTO users (email, role)
-		VALUES ($1, $2)
+		INSERT INTO users (email, role, password_hash)
+		VALUES ($1, $2, $3)
 		RETURNING id, email, role`
-	row := r.pool.QueryRow(ctx, q, email, role)
+	row := r.pool.QueryRow(ctx, q, email, role, passwordHash)
 	var u domain.User
 	if err := row.Scan(&u.ID, &u.Email, &u.Role); err != nil {
 		var pgErr *pgconn.PgError
@@ -64,6 +64,19 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 		return nil, err
 	}
 	return &u, nil
+}
+
+func (r *UserRepository) GetAuthCredentialsByEmail(ctx context.Context, email string) (*AuthCredentials, error) {
+	const q = `SELECT id, role, password_hash FROM users WHERE lower(email) = lower($1)`
+	var c AuthCredentials
+	err := r.pool.QueryRow(ctx, q, email).Scan(&c.UserID, &c.Role, &c.PasswordHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 func (r *UserRepository) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {

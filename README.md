@@ -51,7 +51,7 @@ BASE=http://localhost:8080
 
 REGISTER_JSON=$(curl -s -X POST "$BASE/api/v1/auth/register" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"demo.reader@example.com"}')
+  -d '{"email":"demo.reader@example.com","password":"securepass123"}')
 echo "$REGISTER_JSON"
 
 TOKEN=$(echo "$REGISTER_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
@@ -67,7 +67,7 @@ If you don’t have Python, copy **`access_token`** from the JSON manually into 
 ```bash
 curl -s -X POST "$BASE/api/v1/auth/login" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"demo.reader@example.com"}'
+  -d '{"email":"demo.reader@example.com","password":"securepass123"}'
 ```
 
 ### 4) Admin list (`ADMIN` role required)
@@ -92,17 +92,10 @@ Expect **401** for missing/invalid Bearer token.
 
 ## Automated tests (Go)
 
-Runs **without** a database for most packages; CI uses only these.
+All tests are **in-process** (no Docker, no live Postgres). CI runs `go test ./...` the same way you can locally.
 
 ```bash
 go test ./...
-```
-
-**Repository integration tests** (extra Postgres checks: create/get/update/delete, duplicate email) run only when **`DATABASE_URL`** is set:
-
-```bash
-export DATABASE_URL='postgresql://...'
-go test ./internal/repository/ -v -count=1
 ```
 
 ## Admin user (manual, no API bootstrap)
@@ -113,7 +106,7 @@ Create or promote an admin with **`psql`** (or any SQL client). Example: set **`
 UPDATE users SET role = 'ADMIN' WHERE lower(email) = lower('you@example.com');
 ```
 
-Then **`POST /api/v1/auth/login`** with that email returns a JWT whose **`role`** claim is **`ADMIN`**.
+Then **`POST /api/v1/auth/login`** with that email and password returns a JWT whose **`role`** claim is **`ADMIN`**.
 
 ## Build + run (deployment)
 
@@ -124,7 +117,9 @@ go build -tags netgo -ldflags '-s -w' -o app
 
 ## Database migrations (Flyway)
 
-Versioned SQL lives under `db/migration/` (for example `V1__initial_schema.sql`). Apply with the Flyway CLI pointed at your Postgres URL; see the Flyway docs for `-locations` and JDBC URLs.
+Versioned SQL lives under `db/migration/` (for example `V1__initial_schema.sql`, `V2__users_password_hash.sql`). Apply with the Flyway CLI pointed at your Postgres URL; see the Flyway docs for `-locations` and JDBC URLs.
+
+**`V2__users_password_hash.sql`** adds **`password_hash`** to **`users`**. If an older dev database still has email-only users without hashes, clear or migrate those rows before applying **`V2`** (the migration expects every user row to gain a password hash).
 
 Example (remote Postgres — replace host, database, user, and use a secure password source):
 

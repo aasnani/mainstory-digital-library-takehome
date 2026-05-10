@@ -21,8 +21,9 @@ func NewAuthHandler(cfg *config.Config, svc *service.UserService) *AuthHandler {
 	return &AuthHandler{cfg: cfg, svc: svc}
 }
 
-type emailReq struct {
-	Email string `json:"email"`
+type authReq struct {
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required"`
 }
 
 type authResp struct {
@@ -33,12 +34,12 @@ type authResp struct {
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
-	var req emailReq
+	var req authReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		api.WriteError(c, http.StatusBadRequest, "validation_error", "invalid JSON body")
 		return
 	}
-	u, tok, err := h.svc.Register(c.Request.Context(), req.Email)
+	u, tok, err := h.svc.Register(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, domain.ErrConflict) {
 			api.WriteError(c, http.StatusConflict, "conflict", "email already registered")
@@ -56,15 +57,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req emailReq
+	var req authReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		api.WriteError(c, http.StatusBadRequest, "validation_error", "invalid JSON body")
 		return
 	}
-	u, tok, err := h.svc.Login(c.Request.Context(), req.Email)
+	u, tok, err := h.svc.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, domain.ErrUnauthorized) {
-			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "unknown email or user not registered")
+			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "invalid email or password")
 			return
 		}
 		api.WriteErrorFromDomain(c, err)
