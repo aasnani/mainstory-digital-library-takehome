@@ -33,6 +33,7 @@ func NewBookRepository(pool *pgxpool.Pool) *BookRepository {
 	return &BookRepository{pool: pool}
 }
 
+// Create inserts a full book row including content (admin/librarian flows).
 func (r *BookRepository) Create(ctx context.Context, title, description, author, genre string, isFiction bool, publishedDate interface{}, language string, priceCents int32, content string) (*domain.Book, error) {
 	const q = `
 		INSERT INTO books (title, description, author, genre, is_fiction, published_date, language, price_cents, content)
@@ -42,6 +43,7 @@ func (r *BookRepository) Create(ctx context.Context, title, description, author,
 	return scanBook(row)
 }
 
+// GetByID selects all columns including content — used for entitled reads and staff preview.
 func (r *BookRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Book, error) {
 	const q = `
 		SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents, content
@@ -54,6 +56,7 @@ func (r *BookRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Boo
 	return b, err
 }
 
+// ListCatalog deliberately omits the content column so pagination stays cheap for large ebooks.
 func (r *BookRepository) ListCatalog(ctx context.Context, filter domain.BookListFilter, limit, offset int32) ([]domain.Book, error) {
 	var b strings.Builder
 	b.WriteString(`SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents
@@ -120,6 +123,7 @@ func (r *BookRepository) ListCatalog(ctx context.Context, filter domain.BookList
 	return out, rows.Err()
 }
 
+// GetCatalogByIDs powers “my library” joins without N+1 selects for book metadata.
 func (r *BookRepository) GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Book, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -143,6 +147,7 @@ func (r *BookRepository) GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) (
 	return out, rows.Err()
 }
 
+// Update overwrites catalog + content fields for the id; 404 when id missing.
 func (r *BookRepository) Update(ctx context.Context, id uuid.UUID, title, description, author, genre string, isFiction bool, publishedDate interface{}, language string, priceCents int32, content string) (*domain.Book, error) {
 	const q = `
 		UPDATE books SET
@@ -158,6 +163,7 @@ func (r *BookRepository) Update(ctx context.Context, id uuid.UUID, title, descri
 	return bk, err
 }
 
+// Delete removes a book; FK from entitlements → 23503 mapped to ErrConflict.
 func (r *BookRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM books WHERE id = $1`, id)
 	if err != nil {
@@ -173,6 +179,7 @@ func (r *BookRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// scanBook centralizes column order for all RETURNING/SELECT full-book queries.
 func scanBook(row pgx.Row) (*domain.Book, error) {
 	var bk domain.Book
 	err := row.Scan(&bk.ID, &bk.Title, &bk.Description, &bk.Author, &bk.Genre, &bk.IsFiction, &bk.PublishedDate, &bk.AddedAt, &bk.Language, &bk.PriceCents, &bk.Content)

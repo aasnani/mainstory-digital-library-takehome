@@ -13,6 +13,7 @@ import (
 	"mainstory-digital-library-takehome/internal/domain"
 )
 
+// entitlementSelectCols is DRY so SELECT lists can’t drift from scanEntitlement column order during refactors.
 const entitlementSelectCols = `id, user_id, book_id, type, status, ends_at, renewed_at, cancelled_at, created_at`
 
 // EntitlementStore is implemented by EntitlementRepository.
@@ -39,6 +40,7 @@ func NewEntitlementRepository(pool *pgxpool.Pool) *EntitlementRepository {
 	return &EntitlementRepository{pool: pool}
 }
 
+// Create inserts one entitlement; unique violations become ErrConflict for idempotent purchase UX.
 func (r *EntitlementRepository) Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time, renewedAt *time.Time) (*domain.Entitlement, error) {
 	const q = `
 		INSERT INTO entitlements (user_id, book_id, type, status, ends_at, renewed_at, cancelled_at)
@@ -61,6 +63,7 @@ func (r *EntitlementRepository) Create(ctx context.Context, userID uuid.UUID, bo
 	return e, nil
 }
 
+// GetByID fetches a single entitlement row by primary key.
 func (r *EntitlementRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Entitlement, error) {
 	q := `SELECT ` + entitlementSelectCols + ` FROM entitlements WHERE id = $1`
 	row := r.pool.QueryRow(ctx, q, id)
@@ -71,6 +74,7 @@ func (r *EntitlementRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 	return e, err
 }
 
+// ListByUser expires stale rows first so members never see “ACTIVE” subscriptions that already ended in real time.
 func (r *EntitlementRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]domain.Entitlement, error) {
 	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
 		return nil, err
@@ -83,6 +87,7 @@ func (r *EntitlementRepository) ListByUser(ctx context.Context, userID uuid.UUID
 	return r.scanList(ctx, q, userID, limit, offset)
 }
 
+// ListAll returns global history for librarian/admin dashboards (no per-user filter).
 func (r *EntitlementRepository) ListAll(ctx context.Context, limit, offset int32) ([]domain.Entitlement, error) {
 	q := `
 		SELECT ` + entitlementSelectCols + `
@@ -97,6 +102,7 @@ func (r *EntitlementRepository) ListAll(ctx context.Context, limit, offset int32
 	return scanEntitlementRows(rows)
 }
 
+// scanList runs a query that returns entitlement columns in entitlementSelectCols order.
 func (r *EntitlementRepository) scanList(ctx context.Context, q string, args ...interface{}) ([]domain.Entitlement, error) {
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -106,6 +112,7 @@ func (r *EntitlementRepository) scanList(ctx context.Context, q string, args ...
 	return scanEntitlementRows(rows)
 }
 
+// scanEntitlementRows drains a pgx.Rows into a slice using the standard column order.
 func scanEntitlementRows(rows pgx.Rows) ([]domain.Entitlement, error) {
 	var out []domain.Entitlement
 	for rows.Next() {
@@ -118,6 +125,7 @@ func scanEntitlementRows(rows pgx.Rows) ([]domain.Entitlement, error) {
 	return out, rows.Err()
 }
 
+// Update merges status and ends_at with current row values when pointers are nil.
 func (r *EntitlementRepository) Update(ctx context.Context, id uuid.UUID, status *string, endsAt *time.Time) (*domain.Entitlement, error) {
 	cur, err := r.GetByID(ctx, id)
 	if err != nil {
@@ -138,6 +146,7 @@ func (r *EntitlementRepository) Update(ctx context.Context, id uuid.UUID, status
 	return scanEntitlement(row)
 }
 
+// SetSubscriptionCancelledAt scopes UPDATE to subscription+ACTIVE so purchase rows can’t be “cancelled” by this path.
 func (r *EntitlementRepository) SetSubscriptionCancelledAt(ctx context.Context, id uuid.UUID, at time.Time) (*domain.Entitlement, error) {
 	q := `
 		UPDATE entitlements SET cancelled_at = $2
@@ -151,6 +160,7 @@ func (r *EntitlementRepository) SetSubscriptionCancelledAt(ctx context.Context, 
 	return e, err
 }
 
+// ExpireStaleSubscriptionsForUser is the MVP substitute for a cron: lazily closes out ended periods on reads/writes.
 func (r *EntitlementRepository) ExpireStaleSubscriptionsForUser(ctx context.Context, userID uuid.UUID) error {
 	const q = `
 		UPDATE entitlements SET status = $3
@@ -160,6 +170,7 @@ func (r *EntitlementRepository) ExpireStaleSubscriptionsForUser(ctx context.Cont
 	return err
 }
 
+// HasActiveSubscription is true when an ACTIVE subscription row has ends_at in the future (after lazy expiry).
 func (r *EntitlementRepository) HasActiveSubscription(ctx context.Context, userID uuid.UUID) (bool, error) {
 	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
 		return false, err
@@ -175,6 +186,7 @@ func (r *EntitlementRepository) HasActiveSubscription(ctx context.Context, userI
 	return ok, err
 }
 
+// HasActivePurchase checks a durable per-book purchase entitlement for content gating.
 func (r *EntitlementRepository) HasActivePurchase(ctx context.Context, userID, bookID uuid.UUID) (bool, error) {
 	const q = `
 		SELECT EXISTS(
@@ -186,6 +198,7 @@ func (r *EntitlementRepository) HasActivePurchase(ctx context.Context, userID, b
 	return ok, err
 }
 
+// GetActiveSubscriptionEntitlement returns the current paid subscription row or nil if none (library + cancel flows).
 func (r *EntitlementRepository) GetActiveSubscriptionEntitlement(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
 	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
 		return nil, err
@@ -207,6 +220,7 @@ func (r *EntitlementRepository) GetActiveSubscriptionEntitlement(ctx context.Con
 	return e, nil
 }
 
+// ListActivePurchasesByUser returns purchase rows with book_id set — used to hydrate “my library”.
 func (r *EntitlementRepository) ListActivePurchasesByUser(ctx context.Context, userID uuid.UUID) ([]domain.Entitlement, error) {
 	q := `
 		SELECT ` + entitlementSelectCols + `
@@ -221,6 +235,7 @@ func (r *EntitlementRepository) ListActivePurchasesByUser(ctx context.Context, u
 	return scanEntitlementRows(rows)
 }
 
+// BookExists avoids creating purchase entitlements for deleted/unknown book ids.
 func (r *EntitlementRepository) BookExists(ctx context.Context, bookID uuid.UUID) (bool, error) {
 	const q = `SELECT EXISTS(SELECT 1 FROM books WHERE id = $1)`
 	var ok bool
@@ -228,6 +243,7 @@ func (r *EntitlementRepository) BookExists(ctx context.Context, bookID uuid.UUID
 	return ok, err
 }
 
+// scanEntitlement maps one SQL row into domain.Entitlement using entitlementSelectCols order.
 func scanEntitlement(row pgx.Row) (*domain.Entitlement, error) {
 	var e domain.Entitlement
 	err := row.Scan(&e.ID, &e.UserID, &e.BookID, &e.Type, &e.Status, &e.EndsAt, &e.RenewedAt, &e.CancelledAt, &e.CreatedAt)

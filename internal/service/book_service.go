@@ -10,6 +10,7 @@ import (
 	"mainstory-digital-library-takehome/internal/repository"
 )
 
+// BookService pairs catalog reads with entitlements because "can read content?" is a joint decision in this MVP.
 type BookService struct {
 	books repository.BookStore
 	ents  repository.EntitlementStore
@@ -19,7 +20,7 @@ func NewBookService(books repository.BookStore, ents repository.EntitlementStore
 	return &BookService{books: books, ents: ents}
 }
 
-// ValidateBookListFilter returns an error if search params are too short or price range invalid.
+// ValidateBookListFilter enforces API contract minimums and sane price bounds before touching the database.
 func ValidateBookListFilter(f domain.BookListFilter) error {
 	check := func(s string) error {
 		if s == "" {
@@ -45,7 +46,7 @@ func ValidateBookListFilter(f domain.BookListFilter) error {
 	return nil
 }
 
-// List returns catalog rows (never includes content). Guests (nil user id, empty role) and members get entitlement-based flags; librarian/admin always accessible when JWT present.
+// List returns catalog rows (never includes content). Guests and members get entitlement flags; staff see full access when JWT present.
 func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, filter domain.BookListFilter, limit, offset int32) ([]domain.BookListItem, error) {
 	if err := ValidateBookListFilter(filter); err != nil {
 		return nil, err
@@ -56,6 +57,7 @@ func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, f
 	}
 	out := make([]domain.BookListItem, 0, len(rows))
 	for _, b := range rows {
+		// WHAT: defensive clear — ListCatalog already omits content; this guarantees no leak if repo changes.
 		b.Content = ""
 		item := domain.BookListItem{Book: b}
 		switch role {
@@ -75,7 +77,7 @@ func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, f
 	return out, nil
 }
 
-// MyLibrary returns active subscription (if any) and per-book purchase rows with catalog metadata (no content).
+// MyLibrary batches subscription + purchases with book metadata for a single “account library” API call.
 func (s *BookService) MyLibrary(ctx context.Context, userID uuid.UUID) (*domain.MyLibrary, error) {
 	sub, err := s.ents.GetActiveSubscriptionEntitlement(ctx, userID)
 	if err != nil {
@@ -108,6 +110,7 @@ func (s *BookService) MyLibrary(ctx context.Context, userID uuid.UUID) (*domain.
 		}
 		bk, ok := byID[*e.BookID]
 		if !ok {
+			// WHAT: skip orphan purchases if catalog row was removed but entitlement row still exists.
 			continue
 		}
 		rows = append(rows, domain.LibraryPurchaseRow{
@@ -153,6 +156,7 @@ func (s *BookService) Get(ctx context.Context, userID uuid.UUID, role string, bo
 	}
 }
 
+// memberBookAccess is the single evaluation order for members: subscription wins; else per-book purchase; else locked.
 func (s *BookService) memberBookAccess(ctx context.Context, userID, bookID uuid.UUID) (bool, string, error) {
 	sub, err := s.ents.HasActiveSubscription(ctx, userID)
 	if err != nil {
@@ -171,6 +175,7 @@ func (s *BookService) memberBookAccess(ctx context.Context, userID, bookID uuid.
 	return false, domain.AccessReasonLocked, nil
 }
 
+// BookCreateInput is the service-layer create DTO — decouples HTTP JSON from repository argument lists.
 type BookCreateInput struct {
 	Title         string
 	Description   string
@@ -183,6 +188,7 @@ type BookCreateInput struct {
 	Content       string
 }
 
+// Create validates minimal book rules then persists (handler already enforced authz).
 func (s *BookService) Create(ctx context.Context, in BookCreateInput) (*domain.Book, error) {
 	if in.Title == "" {
 		return nil, domain.ErrInvalidBook
@@ -193,6 +199,7 @@ func (s *BookService) Create(ctx context.Context, in BookCreateInput) (*domain.B
 	return s.books.Create(ctx, in.Title, in.Description, in.Author, in.Genre, in.IsFiction, in.PublishedDate, in.Language, in.PriceCents, in.Content)
 }
 
+// BookUpdateInput mirrors create for PATCH semantics (full replacement fields per repo Update).
 type BookUpdateInput struct {
 	Title         string
 	Description   string
@@ -205,6 +212,7 @@ type BookUpdateInput struct {
 	Content       string
 }
 
+// Update applies the same validation as Create before writing by id.
 func (s *BookService) Update(ctx context.Context, id uuid.UUID, in BookUpdateInput) (*domain.Book, error) {
 	if in.Title == "" {
 		return nil, domain.ErrInvalidBook
@@ -215,6 +223,7 @@ func (s *BookService) Update(ctx context.Context, id uuid.UUID, in BookUpdateInp
 	return s.books.Update(ctx, id, in.Title, in.Description, in.Author, in.Genre, in.IsFiction, in.PublishedDate, in.Language, in.PriceCents, in.Content)
 }
 
+// Delete delegates to the store; conflict when entitlements reference the book surfaces as domain.ErrConflict.
 func (s *BookService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.books.Delete(ctx, id)
 }

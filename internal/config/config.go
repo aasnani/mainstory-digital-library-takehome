@@ -1,3 +1,4 @@
+// Package config centralizes env parsing so main and tests share one definition of required secrets and defaults.
 package config
 
 import (
@@ -7,9 +8,11 @@ import (
 	"time"
 )
 
+// Config holds process-wide settings: kept as plain fields (not a map) so misuse is a compile error at call sites.
 type Config struct {
-	Port            string
-	DatabaseURL     string
+	Port        string
+	DatabaseURL string
+	// JWTSecret is []byte because jwt and HMAC APIs expect byte keys; string would invite accidental logging.
 	JWTSecret       []byte
 	JWTExpiry       time.Duration
 	CORSAllowOrigin string
@@ -31,6 +34,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET is required")
 	}
 
+	// Default 24h matches a typical “session day” for SPAs; override in hours to keep env values human-readable integers.
 	expiry := 24 * time.Hour
 	if v := os.Getenv("JWT_EXPIRY_HOURS"); v != "" {
 		h, err := strconv.Atoi(v)
@@ -40,6 +44,7 @@ func Load() (*Config, error) {
 		expiry = time.Duration(h) * time.Hour
 	}
 
+	// "*" keeps local Lovable/proxy setups frictionless; production should pin a single origin to avoid credentialed wildcard pitfalls.
 	cors := os.Getenv("CORS_ALLOW_ORIGIN")
 	if cors == "" {
 		cors = "*"

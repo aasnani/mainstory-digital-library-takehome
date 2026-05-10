@@ -1,3 +1,4 @@
+// Command main wires HTTP routes to services: composition root only—business rules stay in internal/service.
 package main
 
 import (
@@ -21,6 +22,7 @@ import (
 )
 
 func main() {
+	// Fail fast on missing secrets/DB URL so production never runs half-configured (JWT or Postgres would be undefined).
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -33,10 +35,12 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Repositories take pgxpool so each request can borrow a connection without ad-hoc global state.
 	userRepo := repository.NewUserRepository(pool)
 	bookRepo := repository.NewBookRepository(pool)
 	entRepo := repository.NewEntitlementRepository(pool)
 
+	// Services depend on interfaces (stores) where tests swap fakes; handlers stay thin translators.
 	userSvc := service.NewUserService(cfg, userRepo)
 	bookSvc := service.NewBookService(bookRepo, entRepo)
 	entSvc := service.NewEntitlementService(entRepo)
@@ -48,6 +52,7 @@ func main() {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	// CORS is explicit because SPAs (e.g. Lovable) call this API from another origin with Bearer headers.
 	router.Use(middleware.CORS(cfg.CORSAllowOrigin))
 
 	router.GET("/healthcheck", func(c *gin.Context) {
@@ -58,12 +63,13 @@ func main() {
 	v1.POST("/auth/register", authH.Register)
 	v1.POST("/auth/login", authH.Login)
 
-	// Public catalog: optional Bearer — guests browse; valid JWT unlocks content when entitled.
+	// Catalog is its own group so browse works without login while still honoring JWT when the client sends one (marketing funnel + entitled reads).
 	catalog := v1.Group("")
 	catalog.Use(middleware.OptionalBearerAuth(cfg))
 	catalog.GET("/books", bookH.List)
 	catalog.GET("/books/:id", bookH.GetByID)
 
+	// Everything else requires a valid token so user id/role come from JWT claims, never from request bodies.
 	authorized := v1.Group("")
 	authorized.Use(middleware.BearerAuth(cfg))
 	authorized.GET("/users/me", userH.Me)
@@ -75,6 +81,7 @@ func main() {
 	authorized.PATCH("/users/:id", userH.PatchByID)
 	authorized.DELETE("/users/:id", userH.DeleteByID)
 
+	// Librarians curate; only admins delete so mistaken catalog wipes require elevated intent and match the API contract.
 	libOrAdmin := []string{domain.RoleLibrarian, domain.RoleAdmin}
 	authorized.POST("/books", middleware.RequireAnyRole(libOrAdmin...), bookH.Create)
 	authorized.PATCH("/books/:id", middleware.RequireAnyRole(libOrAdmin...), bookH.Update)
@@ -85,6 +92,7 @@ func main() {
 	authorized.POST("/entitlements", entH.Create)
 	authorized.PATCH("/entitlements/:id", middleware.RequireRole(domain.RoleAdmin), entH.Patch)
 
+	// ReadHeaderTimeout bounds slowloris-style header reads without changing handler deadlines for normal JSON bodies.
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
@@ -97,6 +105,7 @@ func main() {
 		}
 	}()
 
+	// Graceful shutdown lets in-flight requests finish (within the timeout) instead of dropping connections on Ctrl+C or platform SIGTERM.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

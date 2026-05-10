@@ -6,7 +6,7 @@ import (
 
 const bcryptCost = bcrypt.DefaultCost
 
-// HashPassword returns a bcrypt hash suitable for storing in the database.
+// HashPassword delegates to bcrypt so UserService never chooses a custom KDF (consistent cost, time-memory tuned).
 func HashPassword(plaintext string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcryptCost)
 	if err != nil {
@@ -15,7 +15,7 @@ func HashPassword(plaintext string) (string, error) {
 	return string(b), nil
 }
 
-// PasswordMatches compares plaintext to a stored bcrypt hash.
+// PasswordMatches runs constant-time CompareHashAndPassword — never log plaintext on failure.
 func PasswordMatches(plaintext, hashed string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hashed), []byte(plaintext)) == nil
 }

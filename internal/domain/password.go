@@ -17,7 +17,7 @@ var (
 	ErrCannotPatchOtherUserPassword = errors.New("cannot change another user's password via this API")
 )
 
-// ValidatePassword checks length bounds suitable for bcrypt-backed storage.
+// ValidatePassword enforces UX minimum by rune count (user-visible length) and bcrypt’s 72-byte ceiling with len(password) (bcrypt counts bytes).
 func ValidatePassword(password string) error {
 	n := utf8.RuneCountInString(password)
 	if n < PasswordMinLen {
