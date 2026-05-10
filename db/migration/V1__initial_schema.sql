@@ -1,12 +1,15 @@
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email VARCHAR(255) UNIQUE NOT NULL
+    email VARCHAR(255) UNIQUE NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'MEMBER',
+    CONSTRAINT users_role_check CHECK (role IN ('MEMBER', 'LIBRARIAN', 'ADMIN'))
 );
 
 CREATE TABLE IF NOT EXISTS books (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(255) NOT NULL,
-    price_cents INT NOT NULL
+    price_cents INT NOT NULL,
+    content TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS entitlements (
