@@ -61,6 +61,8 @@ func WriteErrorFromDomain(c *gin.Context, err error) {
 		WriteError(c, http.StatusBadRequest, "validation_error", "invalid entitlement fields for type")
 	case domain.ErrInvalidEntitlementRequest:
 		WriteError(c, http.StatusBadRequest, "validation_error", "user_id required when admin creates an entitlement")
+	case domain.ErrNoActiveSubscription:
+		WriteError(c, http.StatusNotFound, "no_active_subscription", "no active subscription to cancel")
 	default:
 		WriteError(c, http.StatusInternalServerError, "internal_error", "internal error")
 	}

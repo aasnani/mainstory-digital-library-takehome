@@ -34,6 +34,15 @@ func (s *EntitlementService) Get(ctx context.Context, actorID uuid.UUID, role st
 	if err != nil {
 		return nil, err
 	}
+	if e.Type == domain.EntitlementSubscription {
+		if err := s.ents.ExpireStaleSubscriptionsForUser(ctx, e.UserID); err != nil {
+			return nil, err
+		}
+		e, err = s.ents.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+	}
 	switch role {
 	case domain.RoleLibrarian, domain.RoleAdmin:
 		return e, nil
@@ -98,7 +107,20 @@ func (s *EntitlementService) Create(ctx context.Context, actorID uuid.UUID, role
 		}
 	}
 
-	return s.ents.Create(ctx, target, in.BookID, in.Type, status, nil)
+	if err := s.ents.ExpireStaleSubscriptionsForUser(ctx, target); err != nil {
+		return nil, err
+	}
+
+	var endsAt *time.Time
+	var renewedAt *time.Time
+	if in.Type == domain.EntitlementSubscription {
+		t := time.Now().UTC()
+		renewedAt = &t
+		end := t.AddDate(0, 0, domain.SubscriptionPeriodDays)
+		endsAt = &end
+	}
+
+	return s.ents.Create(ctx, target, in.BookID, in.Type, status, endsAt, renewedAt)
 }
 
 func (s *EntitlementService) Patch(ctx context.Context, id uuid.UUID, status *string, endsAt *time.Time) (*domain.Entitlement, error) {
@@ -106,4 +128,19 @@ func (s *EntitlementService) Patch(ctx context.Context, id uuid.UUID, status *st
 		return nil, domain.ErrInvalidEntitlementStatus
 	}
 	return s.ents.Update(ctx, id, status, endsAt)
+}
+
+// CancelMySubscription records cancellation at period end: access stays until ends_at (from renewed_at + SubscriptionPeriodDays). Idempotent if already requested.
+func (s *EntitlementService) CancelMySubscription(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
+	e, err := s.ents.GetActiveSubscriptionEntitlement(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if e == nil {
+		return nil, domain.ErrNoActiveSubscription
+	}
+	if e.CancelledAt != nil {
+		return e, nil
+	}
+	return s.ents.SetSubscriptionCancelledAt(ctx, e.ID, time.Now().UTC())
 }

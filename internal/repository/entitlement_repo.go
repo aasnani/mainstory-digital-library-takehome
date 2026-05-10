@@ -13,13 +13,17 @@ import (
 	"mainstory-digital-library-takehome/internal/domain"
 )
 
+const entitlementSelectCols = `id, user_id, book_id, type, status, ends_at, renewed_at, cancelled_at, created_at`
+
 // EntitlementStore is implemented by EntitlementRepository.
 type EntitlementStore interface {
-	Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time) (*domain.Entitlement, error)
+	Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time, renewedAt *time.Time) (*domain.Entitlement, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Entitlement, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]domain.Entitlement, error)
 	ListAll(ctx context.Context, limit, offset int32) ([]domain.Entitlement, error)
 	Update(ctx context.Context, id uuid.UUID, status *string, endsAt *time.Time) (*domain.Entitlement, error)
+	SetSubscriptionCancelledAt(ctx context.Context, id uuid.UUID, at time.Time) (*domain.Entitlement, error)
+	ExpireStaleSubscriptionsForUser(ctx context.Context, userID uuid.UUID) error
 	HasActiveSubscription(ctx context.Context, userID uuid.UUID) (bool, error)
 	HasActivePurchase(ctx context.Context, userID, bookID uuid.UUID) (bool, error)
 	GetActiveSubscriptionEntitlement(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error)
@@ -35,12 +39,12 @@ func NewEntitlementRepository(pool *pgxpool.Pool) *EntitlementRepository {
 	return &EntitlementRepository{pool: pool}
 }
 
-func (r *EntitlementRepository) Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time) (*domain.Entitlement, error) {
+func (r *EntitlementRepository) Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time, renewedAt *time.Time) (*domain.Entitlement, error) {
 	const q = `
-		INSERT INTO entitlements (user_id, book_id, type, status, ends_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, user_id, book_id, type, status, ends_at, created_at`
-	row := r.pool.QueryRow(ctx, q, userID, bookID, typ, status, endsAt)
+		INSERT INTO entitlements (user_id, book_id, type, status, ends_at, renewed_at, cancelled_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NULL)
+		RETURNING ` + entitlementSelectCols
+	row := r.pool.QueryRow(ctx, q, userID, bookID, typ, status, endsAt, renewedAt)
 	e, err := scanEntitlement(row)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -58,9 +62,7 @@ func (r *EntitlementRepository) Create(ctx context.Context, userID uuid.UUID, bo
 }
 
 func (r *EntitlementRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Entitlement, error) {
-	const q = `
-		SELECT id, user_id, book_id, type, status, ends_at, created_at
-		FROM entitlements WHERE id = $1`
+	q := `SELECT ` + entitlementSelectCols + ` FROM entitlements WHERE id = $1`
 	row := r.pool.QueryRow(ctx, q, id)
 	e, err := scanEntitlement(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -70,8 +72,11 @@ func (r *EntitlementRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 }
 
 func (r *EntitlementRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]domain.Entitlement, error) {
-	const q = `
-		SELECT id, user_id, book_id, type, status, ends_at, created_at
+	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
+		return nil, err
+	}
+	q := `
+		SELECT ` + entitlementSelectCols + `
 		FROM entitlements WHERE user_id = $1
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3`
@@ -79,8 +84,8 @@ func (r *EntitlementRepository) ListByUser(ctx context.Context, userID uuid.UUID
 }
 
 func (r *EntitlementRepository) ListAll(ctx context.Context, limit, offset int32) ([]domain.Entitlement, error) {
-	const q = `
-		SELECT id, user_id, book_id, type, status, ends_at, created_at
+	q := `
+		SELECT ` + entitlementSelectCols + `
 		FROM entitlements
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2`
@@ -105,7 +110,7 @@ func scanEntitlementRows(rows pgx.Rows) ([]domain.Entitlement, error) {
 	var out []domain.Entitlement
 	for rows.Next() {
 		var e domain.Entitlement
-		if err := rows.Scan(&e.ID, &e.UserID, &e.BookID, &e.Type, &e.Status, &e.EndsAt, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.UserID, &e.BookID, &e.Type, &e.Status, &e.EndsAt, &e.RenewedAt, &e.CancelledAt, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -126,18 +131,44 @@ func (r *EntitlementRepository) Update(ctx context.Context, id uuid.UUID, status
 	if endsAt != nil {
 		newEnds = endsAt
 	}
-	const q = `
+	q := `
 		UPDATE entitlements SET status = $2, ends_at = $3 WHERE id = $1
-		RETURNING id, user_id, book_id, type, status, ends_at, created_at`
+		RETURNING ` + entitlementSelectCols
 	row := r.pool.QueryRow(ctx, q, id, newStatus, newEnds)
 	return scanEntitlement(row)
 }
 
+func (r *EntitlementRepository) SetSubscriptionCancelledAt(ctx context.Context, id uuid.UUID, at time.Time) (*domain.Entitlement, error) {
+	q := `
+		UPDATE entitlements SET cancelled_at = $2
+		WHERE id = $1 AND type = $3 AND status = $4
+		RETURNING ` + entitlementSelectCols
+	row := r.pool.QueryRow(ctx, q, id, at, domain.EntitlementSubscription, domain.EntitlementActive)
+	e, err := scanEntitlement(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	return e, err
+}
+
+func (r *EntitlementRepository) ExpireStaleSubscriptionsForUser(ctx context.Context, userID uuid.UUID) error {
+	const q = `
+		UPDATE entitlements SET status = $3
+		WHERE user_id = $1 AND type = $2 AND status = $4
+		AND ends_at IS NOT NULL AND ends_at <= NOW()`
+	_, err := r.pool.Exec(ctx, q, userID, domain.EntitlementSubscription, domain.EntitlementCancelled, domain.EntitlementActive)
+	return err
+}
+
 func (r *EntitlementRepository) HasActiveSubscription(ctx context.Context, userID uuid.UUID) (bool, error) {
+	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
+		return false, err
+	}
 	const q = `
 		SELECT EXISTS(
 			SELECT 1 FROM entitlements
 			WHERE user_id = $1 AND type = $2 AND status = $3
+			AND ends_at IS NOT NULL AND ends_at > NOW()
 		)`
 	var ok bool
 	err := r.pool.QueryRow(ctx, q, userID, domain.EntitlementSubscription, domain.EntitlementActive).Scan(&ok)
@@ -156,10 +187,14 @@ func (r *EntitlementRepository) HasActivePurchase(ctx context.Context, userID, b
 }
 
 func (r *EntitlementRepository) GetActiveSubscriptionEntitlement(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
-	const q = `
-		SELECT id, user_id, book_id, type, status, ends_at, created_at
+	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
+		return nil, err
+	}
+	q := `
+		SELECT ` + entitlementSelectCols + `
 		FROM entitlements
 		WHERE user_id = $1 AND type = $2 AND status = $3
+		AND ends_at IS NOT NULL AND ends_at > NOW()
 		LIMIT 1`
 	row := r.pool.QueryRow(ctx, q, userID, domain.EntitlementSubscription, domain.EntitlementActive)
 	e, err := scanEntitlement(row)
@@ -173,8 +208,8 @@ func (r *EntitlementRepository) GetActiveSubscriptionEntitlement(ctx context.Con
 }
 
 func (r *EntitlementRepository) ListActivePurchasesByUser(ctx context.Context, userID uuid.UUID) ([]domain.Entitlement, error) {
-	const q = `
-		SELECT id, user_id, book_id, type, status, ends_at, created_at
+	q := `
+		SELECT ` + entitlementSelectCols + `
 		FROM entitlements
 		WHERE user_id = $1 AND type = $2 AND status = $3 AND book_id IS NOT NULL
 		ORDER BY created_at DESC`
@@ -195,7 +230,7 @@ func (r *EntitlementRepository) BookExists(ctx context.Context, bookID uuid.UUID
 
 func scanEntitlement(row pgx.Row) (*domain.Entitlement, error) {
 	var e domain.Entitlement
-	err := row.Scan(&e.ID, &e.UserID, &e.BookID, &e.Type, &e.Status, &e.EndsAt, &e.CreatedAt)
+	err := row.Scan(&e.ID, &e.UserID, &e.BookID, &e.Type, &e.Status, &e.EndsAt, &e.RenewedAt, &e.CancelledAt, &e.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

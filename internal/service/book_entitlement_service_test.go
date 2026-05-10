@@ -148,20 +148,58 @@ func keyPurchase(uid, bid uuid.UUID) string {
 	return uid.String() + ":" + bid.String()
 }
 
-func (f *fakeEntRepo) Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time) (*domain.Entitlement, error) {
+func (f *fakeEntRepo) Create(ctx context.Context, userID uuid.UUID, bookID *uuid.UUID, typ, status string, endsAt *time.Time, renewedAt *time.Time) (*domain.Entitlement, error) {
 	e := &domain.Entitlement{
 		ID: uuid.New(), UserID: userID, BookID: bookID, Type: typ, Status: status,
-		EndsAt: endsAt, CreatedAt: time.Now(),
+		EndsAt: endsAt, RenewedAt: renewedAt, CreatedAt: time.Now(),
 	}
 	f.entByID[e.ID] = e
 	f.allEnt = append(f.allEnt, *e)
 	f.entByUser[userID] = append(f.entByUser[userID], *e)
-	if typ == domain.EntitlementSubscription && status == domain.EntitlementActive {
-		f.subs[userID] = true
-	}
+	f.syncSubs(userID)
 	if typ == domain.EntitlementSinglePurchase && bookID != nil && status == domain.EntitlementActive {
 		f.purchase[keyPurchase(userID, *bookID)] = true
 	}
+	return cloneEntPtr(e), nil
+}
+
+func (f *fakeEntRepo) syncSubs(userID uuid.UUID) {
+	active := false
+	for _, e := range f.entByID {
+		if e.UserID == userID && e.Type == domain.EntitlementSubscription && e.Status == domain.EntitlementActive &&
+			e.EndsAt != nil && e.EndsAt.After(time.Now()) {
+			active = true
+			break
+		}
+	}
+	if active {
+		f.subs[userID] = true
+	} else {
+		delete(f.subs, userID)
+	}
+}
+
+func (f *fakeEntRepo) ExpireStaleSubscriptionsForUser(ctx context.Context, userID uuid.UUID) error {
+	for _, e := range f.entByID {
+		if e.UserID != userID || e.Type != domain.EntitlementSubscription || e.Status != domain.EntitlementActive {
+			continue
+		}
+		if e.EndsAt != nil && !e.EndsAt.After(time.Now()) {
+			e.Status = domain.EntitlementCancelled
+		}
+	}
+	f.syncSubs(userID)
+	return nil
+}
+
+func (f *fakeEntRepo) SetSubscriptionCancelledAt(ctx context.Context, id uuid.UUID, at time.Time) (*domain.Entitlement, error) {
+	e, ok := f.entByID[id]
+	if !ok || e.Type != domain.EntitlementSubscription || e.Status != domain.EntitlementActive {
+		return nil, domain.ErrNotFound
+	}
+	t := at
+	e.CancelledAt = &t
+	f.syncSubs(e.UserID)
 	return cloneEntPtr(e), nil
 }
 
@@ -179,6 +217,7 @@ func (f *fakeEntRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Entitl
 }
 
 func (f *fakeEntRepo) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]domain.Entitlement, error) {
+	_ = f.ExpireStaleSubscriptionsForUser(ctx, userID)
 	list := f.entByUser[userID]
 	if int(offset) >= len(list) {
 		return nil, nil
@@ -212,14 +251,25 @@ func (f *fakeEntRepo) Update(ctx context.Context, id uuid.UUID, status *string, 
 	}
 	if status != nil {
 		e.Status = *status
+		if e.Type == domain.EntitlementSubscription {
+			if e.Status == domain.EntitlementActive {
+				f.subs[e.UserID] = true
+			} else {
+				delete(f.subs, e.UserID)
+			}
+		}
 	}
 	if endsAt != nil {
 		e.EndsAt = endsAt
 	}
+	f.syncSubs(e.UserID)
 	return cloneEntPtr(e), nil
 }
 
 func (f *fakeEntRepo) HasActiveSubscription(ctx context.Context, userID uuid.UUID) (bool, error) {
+	if err := f.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
+		return false, err
+	}
 	return f.subs[userID], nil
 }
 
@@ -228,10 +278,13 @@ func (f *fakeEntRepo) HasActivePurchase(ctx context.Context, userID, bookID uuid
 }
 
 func (f *fakeEntRepo) GetActiveSubscriptionEntitlement(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
-	for _, e := range f.entByUser[userID] {
-		if e.Type == domain.EntitlementSubscription && e.Status == domain.EntitlementActive {
-			c := e
-			return &c, nil
+	if err := f.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
+		return nil, err
+	}
+	for _, e := range f.entByID {
+		if e.UserID == userID && e.Type == domain.EntitlementSubscription && e.Status == domain.EntitlementActive &&
+			e.EndsAt != nil && e.EndsAt.After(time.Now()) {
+			return cloneEntPtr(e), nil
 		}
 	}
 	return nil, nil
@@ -271,7 +324,9 @@ func TestBookService_MemberList_SubscriptionGrantsAccess(t *testing.T) {
 	bid := uuid.New()
 	br.byID[bid] = &domain.Book{ID: bid, Title: "T", Language: "en", PriceCents: 100, AddedAt: time.Now()}
 	br.list = []domain.Book{*br.byID[bid]}
-	er.subs[u] = true
+	now := time.Now()
+	end := now.AddDate(0, 0, domain.SubscriptionPeriodDays)
+	_, _ = er.Create(context.Background(), u, nil, domain.EntitlementSubscription, domain.EntitlementActive, &end, &now)
 
 	svc := NewBookService(br, er)
 	items, err := svc.List(context.Background(), u, domain.RoleMember, domain.BookListFilter{}, 50, 0)
@@ -389,7 +444,9 @@ func TestEntitlementService_MemberCannotReadOthersEntitlement(t *testing.T) {
 	u := uuid.New()
 	other := uuid.New()
 	eid := uuid.New()
-	er.entByID[eid] = &domain.Entitlement{ID: eid, UserID: other, Type: domain.EntitlementSubscription, Status: domain.EntitlementActive, CreatedAt: time.Now()}
+	rn := time.Now()
+	en := rn.AddDate(0, 0, domain.SubscriptionPeriodDays)
+	er.entByID[eid] = &domain.Entitlement{ID: eid, UserID: other, Type: domain.EntitlementSubscription, Status: domain.EntitlementActive, RenewedAt: &rn, EndsAt: &en, CreatedAt: time.Now()}
 
 	_, err := svc.Get(context.Background(), u, domain.RoleMember, eid)
 	if err != domain.ErrForbidden {
@@ -427,7 +484,7 @@ func TestBookService_MyLibrary(t *testing.T) {
 	br.byID[bid] = &domain.Book{ID: bid, Title: "Owned", Content: "secret", Language: "en", PriceCents: 9, AddedAt: time.Now()}
 	br.list = []domain.Book{*br.byID[bid]}
 	er.books[bid] = true
-	_, _ = er.Create(context.Background(), u, &bid, domain.EntitlementSinglePurchase, domain.EntitlementActive, nil)
+	_, _ = er.Create(context.Background(), u, &bid, domain.EntitlementSinglePurchase, domain.EntitlementActive, nil, nil)
 
 	svc := NewBookService(br, er)
 	lib, err := svc.MyLibrary(context.Background(), u)
