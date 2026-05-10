@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS books (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     author VARCHAR(255) NOT NULL DEFAULT '',
     genre VARCHAR(100) NOT NULL DEFAULT '',
     is_fiction BOOLEAN NOT NULL DEFAULT TRUE,
