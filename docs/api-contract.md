@@ -25,6 +25,16 @@ Authorization: Bearer <access_token>
 
 Use exactly one space after `Bearer`.
 
+### Public catalog (optional auth)
+
+**`GET /api/v1/books`** and **`GET /api/v1/books/:id`** work **without** any **`Authorization`** header so anonymous visitors can browse search results and book detail pages (metadata and pricing only; **no** full **`content`** until they are logged in and entitled).
+
+- **No header**: treated as a **guest** — every book shows **`is_accessible`: false** and **`access_reason`**: **`LOCKED`** on list; detail has **no** **`content`**.
+- **Valid `Authorization: Bearer …`**: same rules as a signed-in **MEMBER** / **LIBRARIAN** / **ADMIN** (subscription, purchases, staff preview). Use this on the book detail page after login so entitled users can read **`content`**.
+- **Invalid or expired token** if a header is sent: **401** — clear the token and retry as guest or re-login.
+
+Flows like “buy” / **`POST /entitlements`** still require registration and a Bearer token.
+
 ### Login and register
 
 | Action | Method | Path | Body |
@@ -201,8 +211,8 @@ Catalog fields include **`title`**, **`description`**, **`author`**, **`genre`**
 
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
-| `GET` | `/api/v1/books` | Bearer | Query params above. Response **`{ "books": BookListItem[] }`**. No **`content`** in list rows. Each item includes **`is_accessible`** and **`access_reason`** (**`SUBSCRIPTION`**, **`PURCHASED`**, **`LOCKED`**) for **MEMBER**; staff see the same shape with correct access flags. |
-| `GET` | `/api/v1/books/:id` | Bearer | **MEMBER**: **`content`** present only when entitled. **LIBRARIAN** / **ADMIN**: full book including **`content`**. |
+| `GET` | `/api/v1/books` | **Optional** Bearer | **Guest**: no header. Response **`{ "books": BookListItem[] }`**. No **`content`**. **`is_accessible`** / **`access_reason`** reflect entitlements when JWT present; else all **LOCKED**. |
+| `GET` | `/api/v1/books/:id` | **Optional** Bearer | **Guest**: catalog only, **`content`** omitted. **Logged-in**: same entitlement rules as before; staff always see **`content`**. |
 | `POST` | `/api/v1/books` | Bearer **LIBRARIAN** or **ADMIN** | Create catalog row (JSON body includes **`title`**, **`price_cents`**, optional metadata and **`content`**). **201**. |
 | `PATCH` | `/api/v1/books/:id` | Bearer **LIBRARIAN** or **ADMIN** | Full replacement-style payload (same shape as create). **200**. |
 | `DELETE` | `/api/v1/books/:id` | Bearer **ADMIN** only | **204** if deleted; **409** if entitlements still reference the book. |
@@ -229,7 +239,7 @@ Types: **`SINGLE_PURCHASE`** (requires **`book_id`**) or **`SUBSCRIPTION`** (**o
 ## Integration checklist
 
 1. Read **`API base URL`** from build/runtime config and prefix all paths.
-2. After login/register, save **`access_token`** and send **`Authorization: Bearer`** on **`/api/v1/*`** except **`/auth/*`**.
+2. **Catalog** (**`GET /books`**, **`GET /books/:id`**) can be called **without** a token for the marketing/browse experience. After login/register, send **`Authorization: Bearer`** on protected routes (**`/users/*`**, **`/entitlements`**, mutations, **`/users/me/library`**). You may attach the same Bearer on catalog **GET**s so entitled users see **`content`** and correct **`is_accessible`** flags.
 3. On **401**, clear the token and show auth UI.
 4. Use **`GET /users/me`** as the source of current user identity.
 5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.

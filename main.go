@@ -58,6 +58,12 @@ func main() {
 	v1.POST("/auth/register", authH.Register)
 	v1.POST("/auth/login", authH.Login)
 
+	// Public catalog: optional Bearer — guests browse; valid JWT unlocks content when entitled.
+	catalog := v1.Group("")
+	catalog.Use(middleware.OptionalBearerAuth(cfg))
+	catalog.GET("/books", bookH.List)
+	catalog.GET("/books/:id", bookH.GetByID)
+
 	authorized := v1.Group("")
 	authorized.Use(middleware.BearerAuth(cfg))
 	authorized.GET("/users/me", userH.Me)
@@ -68,8 +74,6 @@ func main() {
 	authorized.PATCH("/users/:id", userH.PatchByID)
 	authorized.DELETE("/users/:id", userH.DeleteByID)
 
-	authorized.GET("/books", bookH.List)
-	authorized.GET("/books/:id", bookH.GetByID)
 	libOrAdmin := []string{domain.RoleLibrarian, domain.RoleAdmin}
 	authorized.POST("/books", middleware.RequireAnyRole(libOrAdmin...), bookH.Create)
 	authorized.PATCH("/books/:id", middleware.RequireAnyRole(libOrAdmin...), bookH.Update)

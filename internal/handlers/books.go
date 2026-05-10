@@ -24,12 +24,14 @@ func NewBooksHandler(svc *service.BookService) *BooksHandler {
 }
 
 func (h *BooksHandler) List(c *gin.Context) {
-	uid, ok := middleware.UserID(c)
-	if !ok {
-		api.WriteError(c, http.StatusUnauthorized, "unauthorized", "missing authentication")
-		return
+	uid, uidOk := middleware.UserID(c)
+	role, roleOk := middleware.Role(c)
+	if !uidOk {
+		uid = uuid.Nil
 	}
-	role, _ := middleware.Role(c)
+	if !roleOk {
+		role = ""
+	}
 	limit, offset, ok := parseLimitOffset(c)
 	if !ok {
 		return
@@ -95,12 +97,14 @@ func parseBookListFilter(c *gin.Context) (domain.BookListFilter, error) {
 }
 
 func (h *BooksHandler) GetByID(c *gin.Context) {
-	uid, ok := middleware.UserID(c)
-	if !ok {
-		api.WriteError(c, http.StatusUnauthorized, "unauthorized", "missing authentication")
-		return
+	uid, uidOk := middleware.UserID(c)
+	role, roleOk := middleware.Role(c)
+	if !uidOk {
+		uid = uuid.Nil
 	}
-	role, _ := middleware.Role(c)
+	if !roleOk {
+		role = ""
+	}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		api.WriteError(c, http.StatusBadRequest, "validation_error", "invalid book id")
