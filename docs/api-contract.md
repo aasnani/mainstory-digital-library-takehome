@@ -91,6 +91,7 @@ If the SPA origin differs from the API origin, the server must allow it via CORS
 
 - New accounts are **`MEMBER`** only.
 - There is **no** public endpoint that creates an **`ADMIN`** user; admin screens assume an account that already has that role in the backend.
+- You **cannot** change your own **`email`** or **`role`** through the API (including **`ADMIN`** on **`PATCH`** targeting yourself). **`ADMIN`** can change **`email`** / **`role`** only when **`PATCH`** targets **another** user’s id.
 
 ## Error format
 
@@ -109,9 +110,9 @@ Errors use this JSON shape:
 
 | Code | Typical cause |
 |------|----------------|
-| **400** | Bad JSON, invalid path/query params, validation (e.g. password length on register). |
-| **401** | Missing or bad `Authorization`, wrong login credentials, expired token. |
-| **403** | Logged in but not allowed (e.g. non-admin listing users, member trying to change role). |
+| **400** | Bad JSON, invalid path/query params, validation (e.g. password length). Empty **`PATCH`** body for self. **`current_password`** without **`new_password`** (or vice versa). Password fields on **`PATCH`** for someone else’s id. |
+| **401** | Missing or bad `Authorization`, wrong login credentials, wrong **`current_password`** when changing password, expired token. |
+| **403** | Logged in but not allowed (e.g. non-admin listing users). **`PATCH`** on yourself with **`email`** or **`role`**. |
 | **404** | Resource not found (e.g. unknown user id). |
 | **409** | Conflict (e.g. email already registered, email taken on update, cannot delete user). |
 | **500** | Server error. |
@@ -133,13 +134,23 @@ Errors use this JSON shape:
 
 ### Users
 
+**Password change (your own account only)** — **`PATCH /api/v1/users/me`** or **`PATCH /api/v1/users/:id`** when **`id`** is your user id:
+
+- Body: **`{ "current_password": string, "new_password": string }`** (both required together). **`new_password`** must satisfy **8–72** characters.
+- Wrong **`current_password`** → **401**. Omitting one of the two password fields → **400**.
+
+**Admin updating another user** (`ADMIN` only, **`id`** not your own):
+
+- Body: **`{ "email"?: string, "role"?: string }`** — at least one field is typical; omitted fields stay unchanged.
+- Do **not** send **`current_password`** / **`new_password`** here (**400**); password change is only for self.
+
 | Method | Path | Auth | Body | Success |
 |--------|------|------|------|---------|
 | `GET` | `/api/v1/users/me` | Bearer | — | **200** user |
-| `PATCH` | `/api/v1/users/me` | Bearer | `{ "email"?: string, "role"?: string }` | **200** user. Non-admin: omit **`role`** (or **403**). |
+| `PATCH` | `/api/v1/users/me` | Bearer | Self: **`current_password`** + **`new_password`** only (see above). No **`email`** / **`role`**. | **200** user |
 | `GET` | `/api/v1/users` | Bearer (**ADMIN**) | Query: `limit` (1–100, default 50), `offset` (≥0, default 0) | **200** `{ "users": User[] }` |
 | `GET` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | — | **200** user |
-| `PATCH` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | `{ "email"?: string, "role"?: string }` | **200** user. Self cannot promote **`role`** without admin. |
+| `PATCH` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | **Self**: same as **`PATCH /users/me`** (password only). **Admin** patching **another** user: **`email`** / **`role`** only. | **200** user |
 | `DELETE` | `/api/v1/users/:id` | Bearer (**ADMIN**) | — | **204** empty body |
 
 **User object**
@@ -159,3 +170,4 @@ Errors use this JSON shape:
 3. On **401**, clear the token and show auth UI.
 4. Use **`GET /users/me`** as the source of current user identity.
 5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.
+6. To change password, **`PATCH`** your profile with **`current_password`** and **`new_password`**; then use the new password on the next login (existing JWTs stay valid until expiry).

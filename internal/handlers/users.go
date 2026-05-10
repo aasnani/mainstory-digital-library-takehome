@@ -23,8 +23,10 @@ func NewUsersHandler(svc *service.UserService) *UsersHandler {
 }
 
 type patchUserReq struct {
-	Email *string `json:"email"`
-	Role  *string `json:"role"`
+	Email           *string `json:"email"`
+	Role            *string `json:"role"`
+	CurrentPassword *string `json:"current_password"`
+	NewPassword     *string `json:"new_password"`
 }
 
 func (h *UsersHandler) Me(c *gin.Context) {
@@ -54,8 +56,10 @@ func (h *UsersHandler) PatchMe(c *gin.Context) {
 		return
 	}
 	u, err := h.svc.Patch(c.Request.Context(), id, id, service.PatchInput{
-		Email: req.Email,
-		Role:  req.Role,
+		Email:           req.Email,
+		Role:            req.Role,
+		CurrentPassword: req.CurrentPassword,
+		NewPassword:     req.NewPassword,
 	}, role == domain.RoleAdmin)
 	if err != nil {
 		api.WriteErrorFromDomain(c, err)
@@ -139,8 +143,10 @@ func (h *UsersHandler) PatchByID(c *gin.Context) {
 		return
 	}
 	u, err := h.svc.Patch(c.Request.Context(), selfID, targetID, service.PatchInput{
-		Email: req.Email,
-		Role:  req.Role,
+		Email:           req.Email,
+		Role:            req.Role,
+		CurrentPassword: req.CurrentPassword,
+		NewPassword:     req.NewPassword,
 	}, isAdmin)
 	if err != nil {
 		api.WriteErrorFromDomain(c, err)

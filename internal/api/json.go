@@ -29,6 +29,12 @@ func WriteErrorFromDomain(c *gin.Context, err error) {
 		WriteError(c, http.StatusBadRequest, "validation_error", "invalid role")
 	case domain.ErrInvalidPassword:
 		WriteError(c, http.StatusBadRequest, "validation_error", "password must be 8–72 characters")
+	case domain.ErrInvalidPasswordChange:
+		WriteError(c, http.StatusBadRequest, "validation_error", "current_password and new_password must both be provided")
+	case domain.ErrEmptyPatch:
+		WriteError(c, http.StatusBadRequest, "validation_error", "no fields to update")
+	case domain.ErrCannotPatchOtherUserPassword:
+		WriteError(c, http.StatusBadRequest, "validation_error", "password can only be changed on your own account")
 	case domain.ErrNotFound:
 		WriteError(c, http.StatusNotFound, "not_found", "resource not found")
 	case domain.ErrConflict:
