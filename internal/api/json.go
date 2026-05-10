@@ -45,6 +45,18 @@ func WriteErrorFromDomain(c *gin.Context, err error) {
 		WriteError(c, http.StatusUnauthorized, "unauthorized", "unauthorized")
 	case domain.ErrCannotDeleteUser:
 		WriteError(c, http.StatusConflict, "conflict", "cannot delete user with existing entitlements")
+	case domain.ErrInvalidBook:
+		WriteError(c, http.StatusBadRequest, "validation_error", "invalid book")
+	case domain.ErrInvalidPrice:
+		WriteError(c, http.StatusBadRequest, "validation_error", "invalid price")
+	case domain.ErrInvalidEntitlementType:
+		WriteError(c, http.StatusBadRequest, "validation_error", "invalid entitlement type")
+	case domain.ErrInvalidEntitlementStatus:
+		WriteError(c, http.StatusBadRequest, "validation_error", "invalid entitlement status")
+	case domain.ErrInvalidEntitlementShape:
+		WriteError(c, http.StatusBadRequest, "validation_error", "invalid entitlement fields for type")
+	case domain.ErrInvalidEntitlementRequest:
+		WriteError(c, http.StatusBadRequest, "validation_error", "user_id required when admin creates an entitlement")
 	default:
 		WriteError(c, http.StatusInternalServerError, "internal_error", "internal error")
 	}

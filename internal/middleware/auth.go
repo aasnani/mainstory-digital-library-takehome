@@ -74,6 +74,29 @@ func RequireRole(role string) gin.HandlerFunc {
 	}
 }
 
+// RequireAnyRole allows the request if the JWT role matches one of the allowed values.
+func RequireAnyRole(roles ...string) gin.HandlerFunc {
+	allow := make(map[string]struct{}, len(roles))
+	for _, r := range roles {
+		allow[r] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		r, ok := c.Get(ContextRoleKey)
+		if !ok {
+			api.WriteError(c, http.StatusForbidden, "forbidden", "missing role")
+			c.Abort()
+			return
+		}
+		rs, _ := r.(string)
+		if _, ok := allow[rs]; !ok {
+			api.WriteError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func UserID(c *gin.Context) (uuid.UUID, bool) {
 	v, ok := c.Get(ContextUserIDKey)
 	if !ok {

@@ -93,6 +93,16 @@ If the SPA origin differs from the API origin, the server must allow it via CORS
 - There is **no** public endpoint that creates an **`ADMIN`** user; admin screens assume an account that already has that role in the backend.
 - You **cannot** change your own **`email`** or **`role`** through the API (including **`ADMIN`** on **`PATCH`** targeting yourself). **`ADMIN`** can change **`email`** / **`role`** only when **`PATCH`** targets **another** user’s id.
 
+### Books and entitlements (summary)
+
+| Role | Books | Entitlements |
+|------|--------|----------------|
+| **MEMBER** | **Read** only (`GET` list + detail). Detail **`content`** only if entitled (**subscription** or **purchase**). List/detail include **`is_accessible`** and **`access_reason`**. | **Create** (mock purchase/subscribe) and **read** **own** rows only. |
+| **LIBRARIAN** | **Create**, **read**, **update** (no **delete**). Always sees full **content** on detail. | **Read all** (list + get). **No** create / update / delete. |
+| **ADMIN** | Full **CRUD** | **Create**, **read**, **update** (no **delete** endpoint). |
+
+Access to **book text**: active **`SUBSCRIPTION`** (all books) or **`SINGLE_PURCHASE`** with matching **`book_id`**. Otherwise **`access_reason`** is **`LOCKED`** and **`content`** is omitted on detail for members.
+
 ## Error format
 
 Errors use this JSON shape:
@@ -112,9 +122,9 @@ Errors use this JSON shape:
 |------|----------------|
 | **400** | Bad JSON, invalid path/query params, validation (e.g. password length). Empty **`PATCH`** body for self. **`current_password`** without **`new_password`** (or vice versa). Password fields on **`PATCH`** for someone else’s id. |
 | **401** | Missing or bad `Authorization`, wrong login credentials, wrong **`current_password`** when changing password, expired token. |
-| **403** | Logged in but not allowed (e.g. non-admin listing users). **`PATCH`** on yourself with **`email`** or **`role`**. |
-| **404** | Resource not found (e.g. unknown user id). |
-| **409** | Conflict (e.g. email already registered, email taken on update, cannot delete user). |
+| **403** | Logged in but not allowed (e.g. non-admin listing users). **`PATCH`** on yourself with **`email`** or **`role`**. Creating/updating books or entitlements without permission. |
+| **404** | Resource not found (e.g. unknown user id, unknown book when purchasing). |
+| **409** | Conflict (e.g. email already registered, duplicate entitlement / unique constraint, cannot delete book referenced by entitlements). |
 | **500** | Server error. |
 
 ## Endpoints
@@ -163,6 +173,37 @@ Errors use this JSON shape:
 }
 ```
 
+### Books
+
+Catalog fields include **`title`**, **`description`**, **`author`**, **`genre`**, **`is_fiction`**, **`published_date`**, **`added_at`**, **`language`**, **`price_cents`**. Full-text **`content`** is gated for **MEMBER** as described above.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|--------|
+| `GET` | `/api/v1/books` | Bearer | Query **`limit`** (1–100, default 50), **`offset`**. Response **`{ "books": BookListItem[] }`**. Each item includes **`is_accessible`** and **`access_reason`** (**`SUBSCRIPTION`**, **`PURCHASED`**, **`LOCKED`**) for **MEMBER**. |
+| `GET` | `/api/v1/books/:id` | Bearer | **MEMBER**: **`content`** present only when entitled. **LIBRARIAN** / **ADMIN**: full book including **`content`**. |
+| `POST` | `/api/v1/books` | Bearer **LIBRARIAN** or **ADMIN** | Create catalog row (JSON body includes **`title`**, **`price_cents`**, optional metadata and **`content`**). **201**. |
+| `PATCH` | `/api/v1/books/:id` | Bearer **LIBRARIAN** or **ADMIN** | Full replacement-style payload (same shape as create). **200**. |
+| `DELETE` | `/api/v1/books/:id` | Bearer **ADMIN** only | **204** if deleted; **409** if entitlements still reference the book. |
+
+### Entitlements
+
+Types: **`SINGLE_PURCHASE`** (requires **`book_id`**) or **`SUBSCRIPTION`** (**omit** **`book_id`**). Status values include **`ACTIVE`**, **`CANCELLED`**, **`PAST_DUE`**.
+
+**MEMBER** **`POST`**: body **`{ "type": "SUBSCRIPTION" }`** or **`{ "type": "SINGLE_PURCHASE", "book_id": "<uuid>" }`**. Do **not** send **`user_id`** (always yourself). Idempotent conflicts → **409**.
+
+**ADMIN** **`POST`**: include **`user_id`** for whose entitlement to create (required).
+
+**ADMIN** **`PATCH /entitlements/:id`**: optional **`status`**, **`ends_at`** (RFC3339).
+
+| Method | Path | Auth | Body | Success |
+|--------|------|------|------|---------|
+| `GET` | `/api/v1/entitlements` | Bearer | Query **`limit`**, **`offset`**. **MEMBER**: own rows only. **LIBRARIAN** / **ADMIN**: all. | **200** `{ "entitlements": [...] }` |
+| `GET` | `/api/v1/entitlements/:id` | Bearer | **MEMBER**: only if **`user_id`** is you. Staff: any. | **200** entitlement |
+| `POST` | `/api/v1/entitlements` | Bearer (**MEMBER** or **ADMIN**, not **LIBRARIAN**) | See above | **201** |
+| `PATCH` | `/api/v1/entitlements/:id` | Bearer **ADMIN** | **`status`**, **`ends_at`** optional | **200** |
+
+**Entitlement object** (fields include **`id`**, **`user_id`**, **`book_id`**, **`type`**, **`status`**, **`ends_at`**, **`created_at`**).
+
 ## Integration checklist
 
 1. Read **`API base URL`** from build/runtime config and prefix all paths.
@@ -171,3 +212,4 @@ Errors use this JSON shape:
 4. Use **`GET /users/me`** as the source of current user identity.
 5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.
 6. To change password, **`PATCH`** your profile with **`current_password`** and **`new_password`**; then use the new password on the next login (existing JWTs stay valid until expiry).
+7. List books with **`GET /books`**; use **`is_accessible`** / **`access_reason`** for locked UI. Purchase or subscribe via **`POST /entitlements`** before reading **`GET /books/:id`** content as a **MEMBER**.
