@@ -10,11 +10,12 @@ import (
 	"mainstory-digital-library-takehome/internal/repository"
 )
 
-// EntitlementService owns mock “checkout” rules: creating rows is how subscription/purchase grants access without a payments vendor.
+// EntitlementService owns mock checkout rules: creating rows is how subscription/purchase grants access without a payments vendor.
 type EntitlementService struct {
 	ents repository.EntitlementStore
 }
 
+// NewEntitlementService wires the entitlement store used by HTTP handlers.
 func NewEntitlementService(ents repository.EntitlementStore) *EntitlementService {
 	return &EntitlementService{ents: ents}
 }
@@ -35,6 +36,7 @@ func (s *EntitlementService) Get(ctx context.Context, actorID uuid.UUID, role st
 	if err != nil {
 		return nil, err
 	}
+	// WHY: subscription rows can become stale until lazy expiry runs — refresh so GET reflects current status.
 	if e.Type == domain.EntitlementSubscription {
 		if err := s.ents.ExpireStaleSubscriptionsForUser(ctx, e.UserID); err != nil {
 			return nil, err
@@ -63,7 +65,9 @@ type CreateEntitlementInput struct {
 	Status       string // optional; default ACTIVE
 }
 
+// Create inserts a subscription or purchase row after validating shape, book existence, and actor permissions.
 func (s *EntitlementService) Create(ctx context.Context, actorID uuid.UUID, role string, in CreateEntitlementInput) (*domain.Entitlement, error) {
+	// Librarians read entitlements but cannot mint access (product decision: staff curate catalog, don’t grant paid access).
 	if role == domain.RoleLibrarian {
 		return nil, domain.ErrForbidden
 	}
@@ -116,6 +120,7 @@ func (s *EntitlementService) Create(ctx context.Context, actorID uuid.UUID, role
 	var endsAt *time.Time
 	var renewedAt *time.Time
 	if in.Type == domain.EntitlementSubscription {
+		// WHAT: mock renewal anchor is “now”; ends_at is renewed_at + SubscriptionPeriodDays (see domain constant).
 		t := time.Now().UTC()
 		renewedAt = &t
 		end := t.AddDate(0, 0, domain.SubscriptionPeriodDays)
@@ -125,6 +130,7 @@ func (s *EntitlementService) Create(ctx context.Context, actorID uuid.UUID, role
 	return s.ents.Create(ctx, target, in.BookID, in.Type, status, endsAt, renewedAt)
 }
 
+// Patch updates status/ends_at for admin support flows (handler enforces ADMIN middleware).
 func (s *EntitlementService) Patch(ctx context.Context, id uuid.UUID, status *string, endsAt *time.Time) (*domain.Entitlement, error) {
 	if status != nil && !domain.ValidEntitlementStatus(*status) {
 		return nil, domain.ErrInvalidEntitlementStatus

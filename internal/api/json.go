@@ -9,15 +9,18 @@ import (
 	"mainstory-digital-library-takehome/internal/domain"
 )
 
+// ErrorBody is the inner object so clients can branch on machine-readable code while showing message to users.
 type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
+// ErrorResponse wraps ErrorBody under "error" to match docs/api-contract.md and many OAuth-style APIs.
 type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
+// WriteError writes an arbitrary validation or infrastructure error with explicit status and code.
 func WriteError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, ErrorResponse{Error: ErrorBody{Code: code, Message: message}})
 }
@@ -66,6 +69,7 @@ func WriteErrorFromDomain(c *gin.Context, err error) {
 	case domain.ErrNoActiveSubscription:
 		WriteError(c, http.StatusNotFound, "no_active_subscription", "no active subscription to cancel")
 	default:
+		// WHAT: non-sentinel errors become 500 — avoids leaking implementation details while staying JSON-shaped.
 		WriteError(c, http.StatusInternalServerError, "internal_error", "internal error")
 	}
 }

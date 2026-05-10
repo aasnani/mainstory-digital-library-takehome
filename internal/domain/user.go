@@ -14,6 +14,7 @@ const (
 	RoleAdmin     = "ADMIN"
 )
 
+// Sentinel errors for users; compared with == in api.WriteErrorFromDomain (wrap with %w if you extend callers).
 var (
 	ErrInvalidEmail     = errors.New("invalid email")
 	ErrInvalidRole      = errors.New("invalid role")

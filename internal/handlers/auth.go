@@ -23,6 +23,7 @@ func NewAuthHandler(cfg *config.Config, svc *service.UserService) *AuthHandler {
 	return &AuthHandler{cfg: cfg, svc: svc}
 }
 
+// authReq is register/login JSON — both flows share validation and service calls.
 type authReq struct {
 	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
@@ -36,6 +37,7 @@ type authResp struct {
 	User        *domain.User `json:"user"`
 }
 
+// Register creates MEMBER + returns JWT in one round-trip so the SPA can store the token immediately.
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req authReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -44,6 +46,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	u, tok, err := h.svc.Register(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
+		// WHAT: surface duplicate email as 409 with explicit message (unique index becomes user-friendly).
 		if errors.Is(err, domain.ErrConflict) {
 			api.WriteError(c, http.StatusConflict, "conflict", "email already registered")
 			return
@@ -59,6 +62,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	})
 }
 
+// Login returns the same JSON shape as Register; wrong credentials always map to one message (no user enumeration).
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req authReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -67,6 +71,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	u, tok, err := h.svc.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
+		// WHAT: generic 401 text for both unknown email and bad password by design.
 		if errors.Is(err, domain.ErrUnauthorized) {
 			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "invalid email or password")
 			return

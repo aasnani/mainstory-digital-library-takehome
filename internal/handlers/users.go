@@ -14,10 +14,12 @@ import (
 	"mainstory-digital-library-takehome/internal/service"
 )
 
+// UsersHandler exposes profile and admin user management; authorization checks stay here, policy in UserService.
 type UsersHandler struct {
 	svc *service.UserService
 }
 
+// NewUsersHandler constructs the handler with its only dependency (service), keeping Gin out of business logic.
 func NewUsersHandler(svc *service.UserService) *UsersHandler {
 	return &UsersHandler{svc: svc}
 }
@@ -30,6 +32,7 @@ type patchUserReq struct {
 	NewPassword     *string `json:"new_password"`
 }
 
+// Me returns GET /users/me — the authenticated user row (no password fields).
 func (h *UsersHandler) Me(c *gin.Context) {
 	id, ok := middleware.UserID(c)
 	if !ok {
@@ -44,12 +47,14 @@ func (h *UsersHandler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, u)
 }
 
+// PatchMe handles PATCH /users/me: self-service password or (if admin) same routing with admin flag from JWT.
 func (h *UsersHandler) PatchMe(c *gin.Context) {
 	id, ok := middleware.UserID(c)
 	if !ok {
 		api.WriteError(c, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
+	// Admins hitting /users/me still act on self only; flag lets service allow email/role when role is ADMIN.
 	role, _ := middleware.Role(c)
 	var req patchUserReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -69,6 +74,7 @@ func (h *UsersHandler) PatchMe(c *gin.Context) {
 	c.JSON(http.StatusOK, u)
 }
 
+// List is GET /users with limit/offset — admin-only; duplicates pagination parsing pattern from books for consistency.
 func (h *UsersHandler) List(c *gin.Context) {
 	role, ok := middleware.Role(c)
 	if !ok || role != domain.RoleAdmin {
@@ -101,6 +107,7 @@ func (h *UsersHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"users": users})
 }
 
+// GetByID returns one user for admin or for self (same id as JWT subject).
 func (h *UsersHandler) GetByID(c *gin.Context) {
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -125,6 +132,7 @@ func (h *UsersHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, u)
 }
 
+// PatchByID is PATCH /users/:id — delegates admin vs self rules to UserService.Patch via isAdmin.
 func (h *UsersHandler) PatchByID(c *gin.Context) {
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -156,6 +164,7 @@ func (h *UsersHandler) PatchByID(c *gin.Context) {
 	c.JSON(http.StatusOK, u)
 }
 
+// DeleteByID is admin-only DELETE; 409 when entitlements FK block delete.
 func (h *UsersHandler) DeleteByID(c *gin.Context) {
 	role, ok := middleware.Role(c)
 	if !ok || role != domain.RoleAdmin {

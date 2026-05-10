@@ -23,6 +23,7 @@ func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
 	return &UserRepository{pool: pool}
 }
 
+// Create inserts a user with pre-hashed password (hashing happens in service/auth, not SQL).
 func (r *UserRepository) Create(ctx context.Context, email, role, passwordHash string) (*domain.User, error) {
 	const q = `
 		INSERT INTO users (email, role, password_hash)
@@ -40,6 +41,7 @@ func (r *UserRepository) Create(ctx context.Context, email, role, passwordHash s
 	return &u, nil
 }
 
+// GetByID fetches public columns only (id, email, role).
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	const q = `SELECT id, email, role FROM users WHERE id = $1`
 	var u domain.User
@@ -67,6 +69,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 	return &u, nil
 }
 
+// GetAuthCredentialsByEmail loads bcrypt hash for login after the service normalizes email.
 func (r *UserRepository) GetAuthCredentialsByEmail(ctx context.Context, email string) (*AuthCredentials, error) {
 	const q = `SELECT id, role, password_hash FROM users WHERE lower(email) = lower($1)`
 	var c AuthCredentials
@@ -80,6 +83,7 @@ func (r *UserRepository) GetAuthCredentialsByEmail(ctx context.Context, email st
 	return &c, nil
 }
 
+// GetAuthCredentialsByID supports password change flows that already know the user id from context.
 func (r *UserRepository) GetAuthCredentialsByID(ctx context.Context, id uuid.UUID) (*AuthCredentials, error) {
 	const q = `SELECT id, role, password_hash FROM users WHERE id = $1`
 	var c AuthCredentials
@@ -93,6 +97,7 @@ func (r *UserRepository) GetAuthCredentialsByID(ctx context.Context, id uuid.UUI
 	return &c, nil
 }
 
+// List orders by email for deterministic admin paging.
 func (r *UserRepository) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
 	const q = `
 		SELECT id, email, role FROM users
@@ -114,6 +119,7 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int32) ([]domai
 	return out, rows.Err()
 }
 
+// Update applies email and/or role in one round-trip; reads current row first to merge nil pointers as “unchanged”.
 func (r *UserRepository) Update(ctx context.Context, id uuid.UUID, email *string, role *string) (*domain.User, error) {
 	u, err := r.GetByID(ctx, id)
 	if err != nil {
@@ -140,6 +146,7 @@ func (r *UserRepository) Update(ctx context.Context, id uuid.UUID, email *string
 	return &out, nil
 }
 
+// UpdatePasswordHash sets bcrypt hash after successful current-password verification in the service.
 func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error {
 	tag, err := r.pool.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, id, passwordHash)
 	if err != nil {
@@ -151,6 +158,7 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, p
 	return nil
 }
 
+// Delete removes a user; FK to entitlements yields 23503 → ErrCannotDeleteUser.
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {

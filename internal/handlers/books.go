@@ -15,6 +15,7 @@ import (
 	"mainstory-digital-library-takehome/internal/service"
 )
 
+// BooksHandler serves catalog and library endpoints; role + optional auth drive visibility flags and content stripping.
 type BooksHandler struct {
 	svc *service.BookService
 }
@@ -23,6 +24,7 @@ func NewBooksHandler(svc *service.BookService) *BooksHandler {
 	return &BooksHandler{svc: svc}
 }
 
+// List is GET /books: paginated catalog rows with per-row access hints; works for guests and authenticated users.
 func (h *BooksHandler) List(c *gin.Context) {
 	// Nil UUID + empty role signals “guest” to BookService so optional auth can show LOCKED for every row.
 	uid, uidOk := middleware.UserID(c)
@@ -50,6 +52,7 @@ func (h *BooksHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"books": items})
 }
 
+// MyLibrary is GET /users/me/library — subscription snapshot + purchased books without full text payloads.
 func (h *BooksHandler) MyLibrary(c *gin.Context) {
 	uid, ok := middleware.UserID(c)
 	if !ok {
@@ -75,6 +78,7 @@ func parseBookListFilter(c *gin.Context) (domain.BookListFilter, error) {
 	if v := c.Query("is_fiction"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
+			// WHAT: reject non-boolean query values; reuses ErrInvalidBook so clients get a single validation bucket.
 			return f, domain.ErrInvalidBook
 		}
 		f.IsFiction = &b
@@ -98,6 +102,7 @@ func parseBookListFilter(c *gin.Context) (domain.BookListFilter, error) {
 	return f, nil
 }
 
+// GetByID is GET /books/:id — returns metadata and may include content when caller is entitled or staff.
 func (h *BooksHandler) GetByID(c *gin.Context) {
 	uid, uidOk := middleware.UserID(c)
 	role, roleOk := middleware.Role(c)
@@ -120,6 +125,7 @@ func (h *BooksHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, item)
 }
 
+// createBookReq is the librarian/admin POST body; binding only enforces title (other fields default in handler).
 type createBookReq struct {
 	Title         string     `json:"title" binding:"required"`
 	Description   string     `json:"description"`
@@ -138,6 +144,7 @@ func (h *BooksHandler) Create(c *gin.Context) {
 		api.WriteError(c, http.StatusBadRequest, "validation_error", "invalid JSON body")
 		return
 	}
+	// WHAT: default fiction=true and language=en when omitted so new rows stay valid for catalog display.
 	isFiction := true
 	if req.IsFiction != nil {
 		isFiction = *req.IsFiction
@@ -164,6 +171,7 @@ func (h *BooksHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, b)
 }
 
+// updateBookReq matches create shape — PATCH replaces the full book payload per service/repository contract.
 type updateBookReq struct {
 	Title         string     `json:"title" binding:"required"`
 	Description   string     `json:"description"`
@@ -176,6 +184,7 @@ type updateBookReq struct {
 	Content       string     `json:"content"`
 }
 
+// Update is PATCH /books/:id — same defaults as Create for fiction/language.
 func (h *BooksHandler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -213,6 +222,7 @@ func (h *BooksHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, b)
 }
 
+// Delete is admin-only route in main; 409 when purchases still reference the book.
 func (h *BooksHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -227,6 +237,7 @@ func (h *BooksHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// parseLimitOffset reads list pagination from query; shared by books and entitlements handlers.
 func parseLimitOffset(c *gin.Context) (limit, offset int32, ok bool) {
 	limit = 50
 	offset = 0

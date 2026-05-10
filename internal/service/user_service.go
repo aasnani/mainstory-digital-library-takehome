@@ -13,6 +13,7 @@ import (
 	"mainstory-digital-library-takehome/internal/repository"
 )
 
+// UserService orchestrates credentials, profile updates, and JWT issuance against UserStore.
 type UserService struct {
 	cfg  *config.Config
 	repo repository.UserStore
@@ -22,6 +23,7 @@ func NewUserService(cfg *config.Config, repo repository.UserStore) *UserService 
 	return &UserService{cfg: cfg, repo: repo}
 }
 
+// IssueToken signs a JWT with the configured expiry — used by register/login and keeps signing policy in one place.
 func (s *UserService) IssueToken(u *domain.User) (string, error) {
 	return auth.Sign(s.cfg, u.ID, u.Role)
 }
@@ -80,10 +82,12 @@ func (s *UserService) Login(ctx context.Context, email, password string) (*domai
 	return u, tok, nil
 }
 
+// GetByID loads the public user projection (no password hash).
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
+// List pages users ordered by email — admin UI / support only at HTTP layer.
 func (s *UserService) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
 	return s.repo.List(ctx, limit, offset)
 }
@@ -161,6 +165,7 @@ func (s *UserService) Patch(ctx context.Context, actorID uuid.UUID, targetID uui
 	return nil, domain.ErrEmptyPatch
 }
 
+// Delete removes a user row; FK entitlements block delete and map to ErrCannotDeleteUser.
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
 	err := s.repo.Delete(ctx, id)
 	if err != nil {

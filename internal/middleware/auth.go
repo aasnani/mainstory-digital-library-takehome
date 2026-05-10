@@ -115,7 +115,7 @@ func RequireRole(role string) gin.HandlerFunc {
 	}
 }
 
-// RequireAnyRole allows the request if the JWT role matches one of the allowed values.
+// RequireAnyRole builds a set once per middleware closure so librarian/admin checks stay O(1) per request.
 func RequireAnyRole(roles ...string) gin.HandlerFunc {
 	allow := make(map[string]struct{}, len(roles))
 	for _, r := range roles {
@@ -148,6 +148,7 @@ func UserID(c *gin.Context) (uuid.UUID, bool) {
 	return id, ok
 }
 
+// Role returns the JWT role claim if BearerAuth or OptionalBearerAuth ran successfully.
 func Role(c *gin.Context) (string, bool) {
 	v, ok := c.Get(ContextRoleKey)
 	if !ok {

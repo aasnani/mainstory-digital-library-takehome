@@ -174,4 +174,5 @@ Do **not** add “AI-generated” attribution to commit messages or PR text.
 - **2026-05-10** `(git) Push feat/self-service-subscription-cancel; PR #6 — self-service subscription cancel [files: —]`
 - **2026-05-10** `(db, api) Subscription period + cancel at period end — V3 renewed_at/cancelled_at; ends_at = renewed_at+30d; cancel sets cancelled_at; access until ends_at [files: db/migration/V3__subscription_period_renewal_cancel_at.sql, internal/repository/entitlement_repo.go, internal/service/entitlement_service.go, internal/domain/entitlement.go, docs/api-contract.md]`
 - **2026-05-11** `(docs, dx) Track AGENTS.md and docs/submission.md; WHY-only code comments — reviewers get agent context + submission log in-repo; comments explain intent/rationale across layers [files: .gitignore, AGENTS.md, docs/submission.md, main.go, internal/**/*.go]`
+- **2026-05-11** `(dx) More WHY/WHAT comments on handlers, services, repositories — easier review of HTTP vs domain vs SQL responsibilities [files: internal/handlers/*.go, internal/service/*.go, internal/repository/*.go, internal/api/json.go, internal/middleware/auth.go, docs/submission.md]`
 

@@ -12,6 +12,7 @@ import (
 	"mainstory-digital-library-takehome/internal/service"
 )
 
+// EntitlementsHandler implements mock purchases/subscribe HTTP; real payment processors would sit behind this API later.
 type EntitlementsHandler struct {
 	svc *service.EntitlementService
 }
@@ -20,6 +21,7 @@ func NewEntitlementsHandler(svc *service.EntitlementService) *EntitlementsHandle
 	return &EntitlementsHandler{svc: svc}
 }
 
+// List returns entitlements: members see only their rows; staff see global history for support tooling.
 func (h *EntitlementsHandler) List(c *gin.Context) {
 	uid, ok := middleware.UserID(c)
 	if !ok {
@@ -39,6 +41,7 @@ func (h *EntitlementsHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"entitlements": items})
 }
 
+// GetByID loads one entitlement if the caller owns it or has staff role.
 func (h *EntitlementsHandler) GetByID(c *gin.Context) {
 	uid, ok := middleware.UserID(c)
 	if !ok {
@@ -67,6 +70,7 @@ type createEntitlementReq struct {
 	Status string     `json:"status"`
 }
 
+// Create is POST /entitlements — member self-checkout or admin grant depending on body user_id and role.
 func (h *EntitlementsHandler) Create(c *gin.Context) {
 	uid, ok := middleware.UserID(c)
 	if !ok {
@@ -92,11 +96,13 @@ func (h *EntitlementsHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, e)
 }
 
+// patchEntitlementReq is admin PATCH body — optional fields mean “leave unchanged” when nil.
 type patchEntitlementReq struct {
 	Status *string    `json:"status"`
 	EndsAt *time.Time `json:"ends_at"`
 }
 
+// CancelMySubscription is member self-service: sets cancelled_at, keeps access until ends_at.
 func (h *EntitlementsHandler) CancelMySubscription(c *gin.Context) {
 	uid, ok := middleware.UserID(c)
 	if !ok {
@@ -111,6 +117,7 @@ func (h *EntitlementsHandler) CancelMySubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, e)
 }
 
+// Patch is admin-only route in main — force status/ends_at for support without member cancel semantics.
 func (h *EntitlementsHandler) Patch(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {

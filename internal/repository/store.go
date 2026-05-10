@@ -11,8 +11,9 @@ import (
 
 // AuthCredentials holds fields needed for login; never expose PasswordHash in HTTP JSON.
 type AuthCredentials struct {
-	UserID       uuid.UUID
-	Role         string
+	UserID uuid.UUID
+	Role   string
+	// PasswordHash is separate from domain.User so list/get user queries never load bcrypt blobs.
 	PasswordHash string
 }
 

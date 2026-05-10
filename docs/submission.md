@@ -64,6 +64,11 @@ Keep this short; **details live in the commit log.**
 
 _Order: newest commit first. Copy the short hash from `git log --oneline`. Update after each commit._
 
+### 2026-05-11 — Additional handler/service/repository comments
+
+- **Prompt**: Add more comments; use short WHAT when no strong WHY.
+- **Result**: Expanded comments on user/book/entitlement handlers, `api` error types, `UserService`/`BookService`/`EntitlementService`, and repository methods; noted orphan purchase skip in `MyLibrary`.
+
 ### 2026-05-11 — Track agent docs, add WHY-only code comments
 
 - **Prompt**: Sync `main`, branch, add rationale comments across Go code (why structs/types/functions exist), stop gitignoring `AGENTS.md` and `docs/submission.md`, commit, push, open PR.
