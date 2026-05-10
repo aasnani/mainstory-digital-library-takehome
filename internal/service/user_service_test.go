@@ -84,6 +84,24 @@ func (f *fakeStore) GetAuthCredentialsByEmail(ctx context.Context, email string)
 	return &repository.AuthCredentials{UserID: u.ID, Role: u.Role, PasswordHash: h}, nil
 }
 
+func (f *fakeStore) GetAuthCredentialsByID(ctx context.Context, id uuid.UUID) (*repository.AuthCredentials, error) {
+	u, ok := f.byID[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	h := f.hashes[u.Email]
+	return &repository.AuthCredentials{UserID: u.ID, Role: u.Role, PasswordHash: h}, nil
+}
+
+func (f *fakeStore) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	u, ok := f.byID[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	f.hashes[u.Email] = passwordHash
+	return nil
+}
+
 func (f *fakeStore) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
 	var out []domain.User
 	for _, u := range f.byID {
@@ -257,12 +275,45 @@ func TestPatch_SelfCannotChangeRole(t *testing.T) {
 	}
 }
 
+func TestPatch_SelfCannotChangeEmail(t *testing.T) {
+	store := newFakeStore()
+	u, _ := store.Create(context.Background(), "me@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	newEmail := "other@test.com"
+	_, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{Email: &newEmail}, false)
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("want forbidden, got %v", err)
+	}
+}
+
+func TestPatch_AdminSelfCannotChangeRole(t *testing.T) {
+	store := newFakeStore()
+	admin, _ := store.Create(context.Background(), "admin@test.com", domain.RoleAdmin, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	role := domain.RoleMember
+	_, err := svc.Patch(context.Background(), admin.ID, admin.ID, PatchInput{Role: &role}, true)
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("want forbidden, got %v", err)
+	}
+}
+
+func TestPatch_EmptySelfPatch(t *testing.T) {
+	store := newFakeStore()
+	u, _ := store.Create(context.Background(), "me@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	_, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{}, false)
+	if !errors.Is(err, domain.ErrEmptyPatch) {
+		t.Fatalf("want ErrEmptyPatch, got %v", err)
+	}
+}
+
 func TestPatch_AdminCanChangeRole(t *testing.T) {
 	store := newFakeStore()
-	u, _ := store.Create(context.Background(), "sub@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	admin, _ := store.Create(context.Background(), "admin@test.com", domain.RoleAdmin, mustHash(t, "pw123456"))
+	member, _ := store.Create(context.Background(), "sub@test.com", domain.RoleMember, mustHash(t, "pw123456"))
 	svc := NewUserService(testConfig(t), store)
 	role := domain.RoleAdmin
-	out, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{Role: &role}, true)
+	out, err := svc.Patch(context.Background(), admin.ID, member.ID, PatchInput{Role: &role}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,11 +324,67 @@ func TestPatch_AdminCanChangeRole(t *testing.T) {
 
 func TestPatch_InvalidRole(t *testing.T) {
 	store := newFakeStore()
-	u, _ := store.Create(context.Background(), "r@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	admin, _ := store.Create(context.Background(), "admin@test.com", domain.RoleAdmin, mustHash(t, "pw123456"))
+	member, _ := store.Create(context.Background(), "r@test.com", domain.RoleMember, mustHash(t, "pw123456"))
 	svc := NewUserService(testConfig(t), store)
 	bad := "SUPERUSER"
-	_, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{Role: &bad}, true)
+	_, err := svc.Patch(context.Background(), admin.ID, member.ID, PatchInput{Role: &bad}, true)
 	if !errors.Is(err, domain.ErrInvalidRole) {
 		t.Fatalf("want invalid role, got %v", err)
+	}
+}
+
+func TestPatch_AdminCannotPatchOtherPassword(t *testing.T) {
+	store := newFakeStore()
+	admin, _ := store.Create(context.Background(), "admin@test.com", domain.RoleAdmin, mustHash(t, "pw123456"))
+	member, _ := store.Create(context.Background(), "sub@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	cur := "pw123456"
+	n := "newpassword99"
+	_, err := svc.Patch(context.Background(), admin.ID, member.ID, PatchInput{CurrentPassword: &cur, NewPassword: &n}, true)
+	if !errors.Is(err, domain.ErrCannotPatchOtherUserPassword) {
+		t.Fatalf("want ErrCannotPatchOtherUserPassword, got %v", err)
+	}
+}
+
+func TestPatch_SelfChangePassword_Incomplete(t *testing.T) {
+	store := newFakeStore()
+	u, _ := store.Create(context.Background(), "me@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	n := "newpassword99"
+	_, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{NewPassword: &n}, false)
+	if !errors.Is(err, domain.ErrInvalidPasswordChange) {
+		t.Fatalf("want ErrInvalidPasswordChange, got %v", err)
+	}
+}
+
+func TestPatch_SelfChangePassword_WrongCurrent(t *testing.T) {
+	store := newFakeStore()
+	u, _ := store.Create(context.Background(), "me@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	cur := "wrong"
+	n := "newpassword99"
+	_, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{CurrentPassword: &cur, NewPassword: &n}, false)
+	if !errors.Is(err, domain.ErrUnauthorized) {
+		t.Fatalf("want unauthorized, got %v", err)
+	}
+}
+
+func TestPatch_SelfChangePassword_Success(t *testing.T) {
+	store := newFakeStore()
+	u, _ := store.Create(context.Background(), "me@test.com", domain.RoleMember, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	cur := "pw123456"
+	n := "newpassword99"
+	out, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{CurrentPassword: &cur, NewPassword: &n}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ID != u.ID {
+		t.Fatal("id mismatch")
+	}
+	_, _, err = svc.Login(context.Background(), "me@test.com", "newpassword99")
+	if err != nil {
+		t.Fatal(err)
 	}
 }

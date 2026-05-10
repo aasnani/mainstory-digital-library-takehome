@@ -79,6 +79,19 @@ func (r *UserRepository) GetAuthCredentialsByEmail(ctx context.Context, email st
 	return &c, nil
 }
 
+func (r *UserRepository) GetAuthCredentialsByID(ctx context.Context, id uuid.UUID) (*AuthCredentials, error) {
+	const q = `SELECT id, role, password_hash FROM users WHERE id = $1`
+	var c AuthCredentials
+	err := r.pool.QueryRow(ctx, q, id).Scan(&c.UserID, &c.Role, &c.PasswordHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 func (r *UserRepository) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
 	const q = `
 		SELECT id, email, role FROM users
@@ -124,6 +137,17 @@ func (r *UserRepository) Update(ctx context.Context, id uuid.UUID, email *string
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, id, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {

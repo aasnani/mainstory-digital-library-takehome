@@ -21,7 +21,9 @@ type UserStore interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetAuthCredentialsByEmail(ctx context.Context, email string) (*AuthCredentials, error)
+	GetAuthCredentialsByID(ctx context.Context, id uuid.UUID) (*AuthCredentials, error)
 	List(ctx context.Context, limit, offset int32) ([]domain.User, error)
 	Update(ctx context.Context, id uuid.UUID, email *string, role *string) (*domain.User, error)
+	UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }

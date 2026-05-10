@@ -86,8 +86,10 @@ func (s *UserService) List(ctx context.Context, limit, offset int32) ([]domain.U
 }
 
 type PatchInput struct {
-	Email *string
-	Role  *string
+	Email           *string
+	Role            *string
+	CurrentPassword *string
+	NewPassword     *string
 }
 
 func (s *UserService) Patch(ctx context.Context, actorID uuid.UUID, targetID uuid.UUID, in PatchInput, isAdmin bool) (*domain.User, error) {
@@ -99,28 +101,59 @@ func (s *UserService) Patch(ctx context.Context, actorID uuid.UUID, targetID uui
 		return nil, domain.ErrForbidden
 	}
 
-	var email *string
-	var role *string
+	if isAdmin && actorID != targetID {
+		if in.CurrentPassword != nil || in.NewPassword != nil {
+			return nil, domain.ErrCannotPatchOtherUserPassword
+		}
+		var email *string
+		var role *string
+		if in.Email != nil {
+			if err := domain.ValidateEmail(*in.Email); err != nil {
+				return nil, err
+			}
+			n := domain.NormalizeEmail(*in.Email)
+			email = &n
+		}
+		if in.Role != nil {
+			if !domain.ValidRole(*in.Role) {
+				return nil, domain.ErrInvalidRole
+			}
+			role = in.Role
+		}
+		return s.repo.Update(ctx, targetID, email, role)
+	}
 
-	if in.Email != nil {
-		if err := domain.ValidateEmail(*in.Email); err != nil {
+	if in.Email != nil || in.Role != nil {
+		return nil, domain.ErrForbidden
+	}
+
+	hasCurrent := in.CurrentPassword != nil
+	hasNew := in.NewPassword != nil
+	if hasCurrent || hasNew {
+		if !hasCurrent || !hasNew {
+			return nil, domain.ErrInvalidPasswordChange
+		}
+		if err := domain.ValidatePassword(*in.NewPassword); err != nil {
 			return nil, err
 		}
-		n := domain.NormalizeEmail(*in.Email)
-		email = &n
+		creds, err := s.repo.GetAuthCredentialsByID(ctx, targetID)
+		if err != nil {
+			return nil, err
+		}
+		if !auth.PasswordMatches(*in.CurrentPassword, creds.PasswordHash) {
+			return nil, domain.ErrUnauthorized
+		}
+		hash, err := auth.HashPassword(*in.NewPassword)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.repo.UpdatePasswordHash(ctx, targetID, hash); err != nil {
+			return nil, err
+		}
+		return s.repo.GetByID(ctx, targetID)
 	}
 
-	if in.Role != nil {
-		if !domain.ValidRole(*in.Role) {
-			return nil, domain.ErrInvalidRole
-		}
-		if !isAdmin {
-			return nil, domain.ErrForbidden
-		}
-		role = in.Role
-	}
-
-	return s.repo.Update(ctx, targetID, email, role)
+	return nil, domain.ErrEmptyPatch
 }
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
