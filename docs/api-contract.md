@@ -20,6 +20,8 @@ Single source of truth for browser clients. **Update this file in the same chang
 
 **Frontend**: configure a single **API base URL** (e.g. `VITE_API_BASE_URL` or your host’s env) and prefix paths below with it, e.g. `https://api.example.com/api/v1/auth/login`.
 
+**Operators**: how to obtain connection strings and secrets, longer **`curl`** walkthroughs, and **`go test`** / Postgres integration tests are documented in **[README.md](../README.md)** (keep this file aligned when API behavior changes).
+
 ## Authentication
 
 ### Bearer JWT

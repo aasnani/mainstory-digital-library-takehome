@@ -12,6 +12,9 @@ import (
 	"mainstory-digital-library-takehome/internal/domain"
 )
 
+// Compile-time check that UserRepository implements UserStore.
+var _ UserStore = (*UserRepository)(nil)
+
 type UserRepository struct {
 	pool *pgxpool.Pool
 }

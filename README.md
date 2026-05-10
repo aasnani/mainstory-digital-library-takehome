@@ -4,15 +4,24 @@
 
 All browser-facing API behavior (paths, JSON, auth, errors, CORS) is documented in **[docs/api-contract.md](docs/api-contract.md)**. Keep that file updated whenever the HTTP API changes.
 
-## Configuration (backend)
+## Environment variables (reference)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | **yes** | PostgreSQL URL (`postgresql://user:pass@host:port/dbname?sslmode=...`). |
-| `JWT_SECRET` | **yes** | Secret for signing JWT access tokens (long random string). |
-| `PORT` | no | Default **8080**. |
-| `JWT_EXPIRY_HOURS` | no | Default **24**. |
-| `CORS_ALLOW_ORIGIN` | no | Default **`*`**. Set to your frontend origin in production. |
+The process reads **only** the standard environment (the app does **not** auto-load a `.env` file). Set variables in the shell, your process manager, or a tool like `direnv`.
+
+### Must be set (server will not start without these)
+
+| Variable | How to obtain / what to put |
+|----------|------------------------------|
+| **`DATABASE_URL`** | Full PostgreSQL connection string. **Local example:** `postgresql://USER:PASSWORD@127.0.0.1:5432/DBNAME?sslmode=disable`. **Managed (e.g. Render):** copy the “Internal” or “External” URL from the dashboard; use `sslmode=require` when the provider requires TLS. |
+| **`JWT_SECRET`** | A long, random secret used to **sign** JWTs (not stored in the DB). Generate one e.g. `openssl rand -base64 48` and set it in production secrets—never commit it. |
+
+### Optional (defaults shown)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| **`PORT`** | `8080` | HTTP listen port. |
+| **`JWT_EXPIRY_HOURS`** | `24` | Access-token lifetime in hours (`expires_in` in auth responses derives from this). |
+| **`CORS_ALLOW_ORIGIN`** | `*` | Value sent as `Access-Control-Allow-Origin`. For production browser apps, set to your frontend origin (e.g. `https://app.example.com`). |
 
 ## Run (local)
 
@@ -25,15 +34,75 @@ go run .
 - `GET /healthcheck` → `UP`
 - JSON API: **`/api/v1/...`** — see [docs/api-contract.md](docs/api-contract.md).
 
-### Quick `curl`
+## Manual API testing (`curl`)
+
+Prerequisites: **Flyway migrations applied** to the DB in `DATABASE_URL`, server running as above.
+
+### 1) Health
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/auth/register \
+curl -s http://localhost:8080/healthcheck
+```
+
+### 2) Register → token → current user
+
+```bash
+BASE=http://localhost:8080
+
+REGISTER_JSON=$(curl -s -X POST "$BASE/api/v1/auth/register" \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com"}'
-# Use access_token from the response:
-curl -s http://localhost:8080/api/v1/users/me \
-  -H "Authorization: Bearer <access_token>"
+  -d '{"email":"demo.reader@example.com"}')
+echo "$REGISTER_JSON"
+
+TOKEN=$(echo "$REGISTER_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+
+curl -s "$BASE/api/v1/users/me" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+If you don’t have Python, copy **`access_token`** from the JSON manually into **`TOKEN`**.
+
+### 3) Login (existing email)
+
+```bash
+curl -s -X POST "$BASE/api/v1/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo.reader@example.com"}'
+```
+
+### 4) Admin list (`ADMIN` role required)
+
+Promote your user in SQL first (see below), then login again and use that JWT:
+
+```bash
+curl -s "$BASE/api/v1/users?limit=20&offset=0" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+### 5) Negative checks
+
+Wrong/missing token:
+
+```bash
+curl -s -o /dev/stderr -w "%{http_code}" "$BASE/api/v1/users/me"
+curl -s "$BASE/api/v1/users/me" -H 'Authorization: Bearer invalid'
+```
+
+Expect **401** for missing/invalid Bearer token.
+
+## Automated tests (Go)
+
+Runs **without** a database for most packages; CI uses only these.
+
+```bash
+go test ./...
+```
+
+**Repository integration tests** (extra Postgres checks: create/get/update/delete, duplicate email) run only when **`DATABASE_URL`** is set:
+
+```bash
+export DATABASE_URL='postgresql://...'
+go test ./internal/repository/ -v -count=1
 ```
 
 ## Admin user (manual, no API bootstrap)
