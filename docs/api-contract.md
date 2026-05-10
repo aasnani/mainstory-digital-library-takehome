@@ -1,44 +1,48 @@
-# API contract (frontend / Lovable)
+# API contract (frontend)
 
-Single source of truth for browser clients. **Update this file in the same change series as any HTTP route, request/response shape, status code, auth, or CORS behavior change.**
+Browser-facing behavior only: URLs, JSON shapes, auth, errors, and status codes. **Update this file whenever routes, bodies, or HTTP semantics change.**
 
-## Overview
+## Base URL
 
-- **Audience**: SPAs (e.g. Lovable-generated UI) and integrators.
-- **Base path**: `/api/v1` (all JSON APIs below are under this prefix unless noted).
-- **Auth model**: Passwords are sent **only over HTTPS** in JSON (`password` field); the API stores **bcrypt hashes** server-side and never returns passwords. Clients send plaintext passwords like typical web apps (TLS protects in transit).
+Use one configurable **API base URL** (for example `VITE_API_BASE_URL`). Every path below is appended to that origin.
 
-## Environment
+- JSON APIs live under **`/api/v1`**.
+- Example: base `https://api.example.com` → login at `POST https://api.example.com/api/v1/auth/login`.
 
-| Variable (backend) | Required | Description |
-|--------------------|----------|-------------|
-| `DATABASE_URL` | yes | PostgreSQL connection URL (libpq / `postgresql://...`). |
-| `JWT_SECRET` | yes | HMAC key for signing JWTs (use a long random string). |
-| `PORT` | no | Listen port; default **8080**. |
-| `JWT_EXPIRY_HOURS` | no | Access token lifetime in hours; default **24**. |
-| `CORS_ALLOW_ORIGIN` | no | `Access-Control-Allow-Origin` value; default **`*`**. For production, set to your frontend origin (e.g. `https://app.example.com`). |
+Send **`Content-Type: application/json`** on requests with a body.
 
-**Frontend**: configure a single **API base URL** (e.g. `VITE_API_BASE_URL` or your host’s env) and prefix paths below with it, e.g. `https://api.example.com/api/v1/auth/login`.
-
-**Operators**: how to obtain connection strings and secrets, longer **`curl`** walkthroughs, and **`go test`** are documented in **[README.md](../README.md)** (keep this file aligned when API behavior changes).
+Use **HTTPS** in production; passwords are sent in JSON over TLS like a typical web app.
 
 ## Authentication
 
-### Bearer JWT
+### Bearer token
 
-Protected endpoints expect:
+Protected routes:
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-There must be exactly one space after `Bearer`.
+Use exactly one space after `Bearer`.
 
-### Obtaining tokens
+### Login and register
 
-Call **`POST /api/v1/auth/register`** or **`POST /api/v1/auth/login`** with body `{ "email": "user@example.com", "password": "..." }`. Passwords must be **8–72 characters** (bcrypt limit). Passwords are **never** included in responses.
+| Action | Method | Path | Body |
+|--------|--------|------|------|
+| Register | `POST` | `/api/v1/auth/register` | `{ "email": string, "password": string }` |
+| Login | `POST` | `/api/v1/auth/login` | `{ "email": string, "password": string }` |
 
-Success response (**register**: HTTP **201**, **login**: HTTP **200**):
+- Password **length**: **8–72** characters (enforced on register; use the same limits in the UI).
+- Passwords are **never** returned in any response.
+
+**Success**
+
+| | HTTP status |
+|--|-------------|
+| Register | **201** |
+| Login | **200** |
+
+**Response body** (same shape for both):
 
 ```json
 {
@@ -53,45 +57,44 @@ Success response (**register**: HTTP **201**, **login**: HTTP **200**):
 }
 ```
 
-- **`expires_in`**: seconds until access token expiry (matches server `JWT_EXPIRY_HOURS`).
-- **`user.role`**: `MEMBER`, `LIBRARIAN`, or `ADMIN` (register always creates **MEMBER**).
+- **`expires_in`**: seconds until the access token expires (use for UX or refresh hints).
+- **`user.role`**: `MEMBER`, `LIBRARIAN`, or `ADMIN`. Registration always returns **`MEMBER`**.
 
-### JWT claims (reference)
+### JWT (optional client decode)
 
-Access tokens are HS256 JWTs. Claims relevant to clients:
+Tokens are standard JWTs. Useful claims if you decode for UI only (navigation, labels):
 
 | Claim | Meaning |
 |-------|---------|
 | `sub` | User id (UUID string). |
 | `role` | `MEMBER`, `LIBRARIAN`, or `ADMIN`. |
-| `exp` | Expiration time (Unix seconds). |
-| `iat` | Issued-at (Unix seconds). |
+| `exp` | Expiry (Unix seconds). |
+| `iat` | Issued at (Unix seconds). |
 
-You may decode the JWT in the browser **only for UI hints** (e.g. hide admin nav). **Authorization is always enforced by the API.**
+Treat **`403`** / missing data as the source of truth for permissions; do not rely on the token alone for security.
 
-### Token storage (browser)
+### Storing the token (browser)
 
-The server does not store the token. Typical patterns:
+The API does not use cookies for this MVP; attach **`Authorization`** yourself.
 
-- **`sessionStorage`**: cleared when the tab closes; good for demos.
+- **`sessionStorage`**: cleared when the tab closes.
 - **`localStorage`**: survives refresh; clear on **401**.
-- **Memory only**: most resilient to theft via XSS from persisted storage; lost on full reload.
+- **In-memory only**: harder for XSS to read from storage; lost on full reload.
 
-On **401 Unauthorized**, clear the stored token and send the user through login/register again.
+On **401**, clear the stored token and return the user to login/register.
 
-## CORS
+## Cross-origin requests
 
-If the UI origin differs from the API origin, the backend must send `Access-Control-Allow-Origin`. Configure **`CORS_ALLOW_ORIGIN`** to your frontend origin when not using `*`. This API uses **Bearer tokens only** (no cookie credentials required for MVP).
+If the SPA origin differs from the API origin, the server must allow it via CORS. This API expects **Bearer** tokens in headers (not cookie-based auth for MVP).
 
-## Roles and admin
+## Roles
 
-- **Register** creates **`MEMBER`** only.
-- **ADMIN** (and role changes by admins) are enforced server-side.
-- **There is no API that bootstraps admin.** Operators promote users via SQL (see README). After promotion, **`POST /auth/login`** with that user’s **email and password** returns a JWT whose **`role`** claim is **`ADMIN`**.
+- New accounts are **`MEMBER`** only.
+- There is **no** public endpoint that creates an **`ADMIN`** user; admin screens assume an account that already has that role in the backend.
 
-## Error envelope
+## Error format
 
-Failed requests return JSON:
+Errors use this JSON shape:
 
 ```json
 {
@@ -102,44 +105,44 @@ Failed requests return JSON:
 }
 ```
 
-## HTTP status reference
+## HTTP status codes (client handling)
 
-| Code | When |
-|------|------|
-| **400** | Invalid JSON, invalid UUID path param, invalid query (`limit`/`offset`), validation errors (including password not **8–72** characters on register). |
-| **401** | Missing/invalid `Authorization`, wrong email/password on login, expired JWT. |
-| **403** | Authenticated but not allowed (e.g. non-admin listing users, self attempting role change). |
-| **404** | User id not found. |
-| **409** | Email already registered; email conflict on update; **cannot delete user** when **entitlements** rows reference that user. |
-| **500** | Unexpected server error. |
+| Code | Typical cause |
+|------|----------------|
+| **400** | Bad JSON, invalid path/query params, validation (e.g. password length on register). |
+| **401** | Missing or bad `Authorization`, wrong login credentials, expired token. |
+| **403** | Logged in but not allowed (e.g. non-admin listing users, member trying to change role). |
+| **404** | Resource not found (e.g. unknown user id). |
+| **409** | Conflict (e.g. email already registered, email taken on update, cannot delete user). |
+| **500** | Server error. |
 
 ## Endpoints
 
-### Health (no version prefix)
+### Health (optional connectivity check)
 
 | Method | Path | Auth | Success |
 |--------|------|------|---------|
-| GET | `/healthcheck` | none | **200** text body `UP` |
+| `GET` | `/healthcheck` | none | **200**, body text `UP` |
 
 ### Auth
 
 | Method | Path | Auth | Body | Success |
 |--------|------|------|------|---------|
-| POST | `/api/v1/auth/register` | none | `{ "email": string, "password": string }` | **201** + auth payload + user |
-| POST | `/api/v1/auth/login` | none | `{ "email": string, "password": string }` | **200** + auth payload + user |
+| `POST` | `/api/v1/auth/register` | none | `{ "email", "password" }` | **201** + token payload |
+| `POST` | `/api/v1/auth/login` | none | `{ "email", "password" }` | **200** + token payload |
 
 ### Users
 
 | Method | Path | Auth | Body | Success |
 |--------|------|------|------|---------|
-| GET | `/api/v1/users/me` | Bearer | — | **200** `{ "id", "email", "role" }` |
-| PATCH | `/api/v1/users/me` | Bearer | `{ "email"?: string, "role"?: string }` | **200** updated user. Non-admin: **`role` must not be sent** (forbidden). |
-| GET | `/api/v1/users` | Bearer **ADMIN** | Query: `limit` (1–100, default 50), `offset` (≥0, default 0) | **200** `{ "users": [ ... ] }` |
-| GET | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | — | **200** user object |
-| PATCH | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | `{ "email"?: string, "role"?: string }` | **200** updated user. Self cannot escalate **role** without admin. |
-| DELETE | `/api/v1/users/:id` | Bearer **ADMIN** | — | **204** no body. **409** if user still referenced by **entitlements**. |
+| `GET` | `/api/v1/users/me` | Bearer | — | **200** user |
+| `PATCH` | `/api/v1/users/me` | Bearer | `{ "email"?: string, "role"?: string }` | **200** user. Non-admin: omit **`role`** (or **403**). |
+| `GET` | `/api/v1/users` | Bearer (**ADMIN**) | Query: `limit` (1–100, default 50), `offset` (≥0, default 0) | **200** `{ "users": User[] }` |
+| `GET` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | — | **200** user |
+| `PATCH` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | `{ "email"?: string, "role"?: string }` | **200** user. Self cannot promote **`role`** without admin. |
+| `DELETE` | `/api/v1/users/:id` | Bearer (**ADMIN**) | — | **204** empty body |
 
-**User JSON shape:**
+**User object**
 
 ```json
 {
@@ -149,48 +152,10 @@ Failed requests return JSON:
 }
 ```
 
-## Examples (`curl`)
+## Integration checklist
 
-Replace host, and export a real `DATABASE_URL` / `JWT_SECRET` before starting the server.
-
-```bash
-export DATABASE_URL='postgresql://...'
-export JWT_SECRET='dev-secret-change-me-use-long-random-string'
-go run .
-```
-
-Register and call **`/users/me`**:
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"reader@example.com","password":"securepass123"}'
-
-TOKEN='<paste access_token from response>'
-
-curl -s http://localhost:8080/api/v1/users/me \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Login:
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"reader@example.com","password":"securepass123"}'
-```
-
-Admin list (after promoting user to **ADMIN** in the database — see README):
-
-```bash
-curl -s 'http://localhost:8080/api/v1/users?limit=10&offset=0' \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
-
-## Frontend checklist (Lovable)
-
-1. Set **API base URL** from env.
-2. After login/register, persist **`access_token`** and send **`Authorization: Bearer`** on all **`/api/v1`** calls except auth endpoints.
-3. Handle **401** by clearing token and showing login/register.
-4. Use **`GET /users/me`** for current user; do not trust user-typed UUIDs for identity.
-5. Gate admin UI on **`role`** from **`/users/me`** or decoded JWT **only as UX**; rely on **403** from API if misconfigured.
+1. Read **`API base URL`** from build/runtime config and prefix all paths.
+2. After login/register, save **`access_token`** and send **`Authorization: Bearer`** on **`/api/v1/***`** except **`/auth/*`**.
+3. On **401**, clear the token and show auth UI.
+4. Use **`GET /users/me`** as the source of current user identity.
+5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.
