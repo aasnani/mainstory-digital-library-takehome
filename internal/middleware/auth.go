@@ -56,6 +56,44 @@ func BearerAuth(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
+// OptionalBearerAuth attaches user id and role when a valid Bearer token is sent; otherwise continues as a guest (no context keys). If the client sends Authorization but the token is invalid, responds 401.
+func OptionalBearerAuth(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h := c.GetHeader("Authorization")
+		if h == "" {
+			c.Next()
+			return
+		}
+		const prefix = "Bearer "
+		if !strings.HasPrefix(h, prefix) {
+			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "Authorization must be Bearer token")
+			c.Abort()
+			return
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(h, prefix))
+		if raw == "" {
+			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "empty bearer token")
+			c.Abort()
+			return
+		}
+		claims, err := auth.Parse(cfg, raw)
+		if err != nil {
+			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
+			c.Abort()
+			return
+		}
+		uid, err := auth.UserID(claims)
+		if err != nil {
+			api.WriteError(c, http.StatusUnauthorized, "unauthorized", "invalid token subject")
+			c.Abort()
+			return
+		}
+		c.Set(ContextUserIDKey, uid)
+		c.Set(ContextRoleKey, claims.Role)
+		c.Next()
+	}
+}
+
 func RequireRole(role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		r, ok := c.Get(ContextRoleKey)
@@ -66,6 +104,29 @@ func RequireRole(role string) gin.HandlerFunc {
 		}
 		rs, _ := r.(string)
 		if rs != role {
+			api.WriteError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireAnyRole allows the request if the JWT role matches one of the allowed values.
+func RequireAnyRole(roles ...string) gin.HandlerFunc {
+	allow := make(map[string]struct{}, len(roles))
+	for _, r := range roles {
+		allow[r] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		r, ok := c.Get(ContextRoleKey)
+		if !ok {
+			api.WriteError(c, http.StatusForbidden, "forbidden", "missing role")
+			c.Abort()
+			return
+		}
+		rs, _ := r.(string)
+		if _, ok := allow[rs]; !ok {
 			api.WriteError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
 			c.Abort()
 			return
