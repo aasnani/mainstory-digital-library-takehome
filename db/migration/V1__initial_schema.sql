@@ -11,12 +11,9 @@ CREATE TABLE IF NOT EXISTS books (
     author VARCHAR(255) NOT NULL DEFAULT '',
     genre VARCHAR(100) NOT NULL DEFAULT '',
     is_fiction BOOLEAN NOT NULL DEFAULT TRUE,
-    synopsis TEXT NOT NULL DEFAULT '',
     published_date DATE,
     added_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    reading_level VARCHAR(50) NOT NULL DEFAULT '',
     language VARCHAR(16) NOT NULL DEFAULT 'en',
-    cover_image_url VARCHAR(512) NOT NULL DEFAULT '',
     price_cents INT NOT NULL,
     content TEXT NOT NULL DEFAULT ''
 );
