@@ -59,6 +59,7 @@ func (h *EntitlementsHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, e)
 }
 
+// createEntitlementReq mirrors POST bodies: user_id only for admin grants; members omit it to prevent self→other escalation.
 type createEntitlementReq struct {
 	UserID *uuid.UUID `json:"user_id"`
 	Type   string     `json:"type" binding:"required"`

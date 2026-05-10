@@ -22,6 +22,7 @@ func NewUsersHandler(svc *service.UserService) *UsersHandler {
 	return &UsersHandler{svc: svc}
 }
 
+// patchUserReq uses pointers so JSON omission means “don’t change” vs empty string for admin updates.
 type patchUserReq struct {
 	Email           *string `json:"email"`
 	Role            *string `json:"role"`

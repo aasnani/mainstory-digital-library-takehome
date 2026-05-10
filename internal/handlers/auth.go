@@ -1,3 +1,4 @@
+// Package handlers are Gin adapters: parse JSON, call services, map errors—no SQL or entitlement rules here.
 package handlers
 
 import (
@@ -12,6 +13,7 @@ import (
 	"mainstory-digital-library-takehome/internal/service"
 )
 
+// AuthHandler needs Config in addition to UserService to echo JWT expiry seconds consistent with the signed token.
 type AuthHandler struct {
 	cfg *config.Config
 	svc *service.UserService
@@ -26,6 +28,7 @@ type authReq struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// authResp follows OAuth2-ish field names so frontends can reuse generic Bearer client helpers.
 type authResp struct {
 	AccessToken string       `json:"access_token"`
 	TokenType   string       `json:"token_type"`

@@ -1,3 +1,4 @@
+// Package api centralizes JSON error envelopes so every handler returns the same shape the SPA documents.
 package api
 
 import (
@@ -21,6 +22,7 @@ func WriteError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, ErrorResponse{Error: ErrorBody{Code: code, Message: message}})
 }
 
+// WriteErrorFromDomain maps sentinel domain errors to stable HTTP codes/messages (contract in docs/api-contract.md).
 func WriteErrorFromDomain(c *gin.Context, err error) {
 	switch err {
 	case domain.ErrInvalidEmail:

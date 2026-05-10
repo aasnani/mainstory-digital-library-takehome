@@ -1,3 +1,4 @@
+// Package repository is the SQL boundary: returns domain types and sentinel errors, not gin contexts.
 package repository
 
 import (

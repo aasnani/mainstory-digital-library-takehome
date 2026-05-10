@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// Entitlement type/status strings mirror Flyway CHECK constraints so the app cannot invent states the DB rejects.
 const (
 	EntitlementSinglePurchase = "SINGLE_PURCHASE"
 	EntitlementSubscription   = "SUBSCRIPTION"
@@ -31,14 +32,19 @@ var (
 	ErrNoActiveSubscription      = errors.New("no active subscription")
 )
 
+// Entitlement is a row in the ledger: subscription rows omit BookID; purchase rows require it (enforced in SQL + service).
 type Entitlement struct {
-	ID          uuid.UUID  `json:"id"`
-	UserID      uuid.UUID  `json:"user_id"`
-	BookID      *uuid.UUID `json:"book_id,omitempty"`
-	Type        string     `json:"type"`
-	Status      string     `json:"status"`
-	EndsAt      *time.Time `json:"ends_at,omitempty"`
-	RenewedAt   *time.Time `json:"renewed_at,omitempty"`
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+	// BookID is nil for SUBSCRIPTION because access is all books for the user until ends_at.
+	BookID *uuid.UUID `json:"book_id,omitempty"`
+	Type   string     `json:"type"`
+	Status string     `json:"status"`
+	// EndsAt defines the paid window for subscriptions; purchases use ACTIVE without an end in MVP.
+	EndsAt *time.Time `json:"ends_at,omitempty"`
+	// RenewedAt anchors billing periods (mock renewals bump this and recompute ends_at).
+	RenewedAt *time.Time `json:"renewed_at,omitempty"`
+	// CancelledAt is set when the user opts out of renewal but should keep access until EndsAt.
 	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 }

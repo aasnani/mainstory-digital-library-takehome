@@ -13,6 +13,7 @@ import (
 	"mainstory-digital-library-takehome/internal/domain"
 )
 
+// entitlementSelectCols is DRY so SELECT lists can’t drift from scanEntitlement column order during refactors.
 const entitlementSelectCols = `id, user_id, book_id, type, status, ends_at, renewed_at, cancelled_at, created_at`
 
 // EntitlementStore is implemented by EntitlementRepository.
@@ -71,6 +72,7 @@ func (r *EntitlementRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 	return e, err
 }
 
+// ListByUser expires stale rows first so members never see “ACTIVE” subscriptions that already ended in real time.
 func (r *EntitlementRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]domain.Entitlement, error) {
 	if err := r.ExpireStaleSubscriptionsForUser(ctx, userID); err != nil {
 		return nil, err
@@ -138,6 +140,7 @@ func (r *EntitlementRepository) Update(ctx context.Context, id uuid.UUID, status
 	return scanEntitlement(row)
 }
 
+// SetSubscriptionCancelledAt scopes UPDATE to subscription+ACTIVE so purchase rows can’t be “cancelled” by this path.
 func (r *EntitlementRepository) SetSubscriptionCancelledAt(ctx context.Context, id uuid.UUID, at time.Time) (*domain.Entitlement, error) {
 	q := `
 		UPDATE entitlements SET cancelled_at = $2
@@ -151,6 +154,7 @@ func (r *EntitlementRepository) SetSubscriptionCancelledAt(ctx context.Context, 
 	return e, err
 }
 
+// ExpireStaleSubscriptionsForUser is the MVP substitute for a cron: lazily closes out ended periods on reads/writes.
 func (r *EntitlementRepository) ExpireStaleSubscriptionsForUser(ctx context.Context, userID uuid.UUID) error {
 	const q = `
 		UPDATE entitlements SET status = $3

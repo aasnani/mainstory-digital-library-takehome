@@ -10,6 +10,7 @@ import (
 	"mainstory-digital-library-takehome/internal/repository"
 )
 
+// BookService pairs catalog reads with entitlements because "can read content?" is a joint decision in this MVP.
 type BookService struct {
 	books repository.BookStore
 	ents  repository.EntitlementStore
@@ -153,6 +154,7 @@ func (s *BookService) Get(ctx context.Context, userID uuid.UUID, role string, bo
 	}
 }
 
+// memberBookAccess is the single evaluation order for members: subscription wins; else per-book purchase; else locked.
 func (s *BookService) memberBookAccess(ctx context.Context, userID, bookID uuid.UUID) (bool, string, error) {
 	sub, err := s.ents.HasActiveSubscription(ctx, userID)
 	if err != nil {

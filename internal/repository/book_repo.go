@@ -54,6 +54,7 @@ func (r *BookRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Boo
 	return b, err
 }
 
+// ListCatalog deliberately omits the content column so pagination stays cheap for large ebooks.
 func (r *BookRepository) ListCatalog(ctx context.Context, filter domain.BookListFilter, limit, offset int32) ([]domain.Book, error) {
 	var b strings.Builder
 	b.WriteString(`SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents
@@ -120,6 +121,7 @@ func (r *BookRepository) ListCatalog(ctx context.Context, filter domain.BookList
 	return out, rows.Err()
 }
 
+// GetCatalogByIDs powers “my library” joins without N+1 selects for book metadata.
 func (r *BookRepository) GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Book, error) {
 	if len(ids) == 0 {
 		return nil, nil

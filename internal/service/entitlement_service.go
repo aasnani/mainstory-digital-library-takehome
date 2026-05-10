@@ -10,6 +10,7 @@ import (
 	"mainstory-digital-library-takehome/internal/repository"
 )
 
+// EntitlementService owns mock “checkout” rules: creating rows is how subscription/purchase grants access without a payments vendor.
 type EntitlementService struct {
 	ents repository.EntitlementStore
 }
@@ -54,6 +55,7 @@ func (s *EntitlementService) Get(ctx context.Context, actorID uuid.UUID, role st
 	}
 }
 
+// CreateEntitlementInput keeps admin “grant to user X” and member “grant to self” in one struct guarded by role checks.
 type CreateEntitlementInput struct {
 	TargetUserID *uuid.UUID // admin only: whose entitlement to create
 	Type         string

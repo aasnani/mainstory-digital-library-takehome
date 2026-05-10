@@ -53,6 +53,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	return &u, nil
 }
 
+// GetByEmail uses lower() comparison so callers can pass mixed-case emails without normalizing twice inconsistently.
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	const q = `SELECT id, email, role FROM users WHERE lower(email) = lower($1)`
 	var u domain.User

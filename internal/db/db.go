@@ -1,3 +1,4 @@
+// Package db isolates pgx pool construction so services never import driver details directly.
 package db
 
 import (
@@ -7,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Connect pings once up front: the process should not start if migrations weren’t applied or credentials are wrong.
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {

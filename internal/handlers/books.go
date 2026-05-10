@@ -24,6 +24,7 @@ func NewBooksHandler(svc *service.BookService) *BooksHandler {
 }
 
 func (h *BooksHandler) List(c *gin.Context) {
+	// Nil UUID + empty role signals “guest” to BookService so optional auth can show LOCKED for every row.
 	uid, uidOk := middleware.UserID(c)
 	role, roleOk := middleware.Role(c)
 	if !uidOk {
@@ -63,6 +64,7 @@ func (h *BooksHandler) MyLibrary(c *gin.Context) {
 	c.JSON(http.StatusOK, lib)
 }
 
+// parseBookListFilter keeps query string parsing out of the service layer (HTTP-specific types and defaults).
 func parseBookListFilter(c *gin.Context) (domain.BookListFilter, error) {
 	var f domain.BookListFilter
 	f.Q = strings.TrimSpace(c.Query("q"))

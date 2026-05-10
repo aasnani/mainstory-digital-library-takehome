@@ -1,3 +1,4 @@
+// Package service contains use-cases orchestrating repositories and auth helpers (domain rules live here, not in Gin).
 package service
 
 import (
@@ -25,6 +26,7 @@ func (s *UserService) IssueToken(u *domain.User) (string, error) {
 	return auth.Sign(s.cfg, u.ID, u.Role)
 }
 
+// Register always creates MEMBER rows: privileged roles are DB/ops concerns, not self-serve signup.
 func (s *UserService) Register(ctx context.Context, email, password string) (*domain.User, string, error) {
 	if err := domain.ValidateEmail(email); err != nil {
 		return nil, "", err
@@ -48,6 +50,7 @@ func (s *UserService) Register(ctx context.Context, email, password string) (*do
 	return u, tok, nil
 }
 
+// Login returns ErrUnauthorized on missing users or bad passwords to avoid account enumeration via different errors.
 func (s *UserService) Login(ctx context.Context, email, password string) (*domain.User, string, error) {
 	if err := domain.ValidateEmail(email); err != nil {
 		return nil, "", err
@@ -85,6 +88,7 @@ func (s *UserService) List(ctx context.Context, limit, offset int32) ([]domain.U
 	return s.repo.List(ctx, limit, offset)
 }
 
+// PatchInput separates admin mutations (email/role) from self-service password changes to prevent mixed semantics in one struct without rules.
 type PatchInput struct {
 	Email           *string
 	Role            *string
@@ -92,6 +96,7 @@ type PatchInput struct {
 	NewPassword     *string
 }
 
+// Patch encodes RBAC: admins can’t set others’ passwords via PATCH; members can’t escalate role/email on self.
 func (s *UserService) Patch(ctx context.Context, actorID uuid.UUID, targetID uuid.UUID, in PatchInput, isAdmin bool) (*domain.User, error) {
 	if _, err := s.repo.GetByID(ctx, targetID); err != nil {
 		return nil, err
