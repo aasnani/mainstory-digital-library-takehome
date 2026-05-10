@@ -107,3 +107,16 @@ func (s *EntitlementService) Patch(ctx context.Context, id uuid.UUID, status *st
 	}
 	return s.ents.Update(ctx, id, status, endsAt)
 }
+
+// CancelMySubscription sets the caller's active SUBSCRIPTION to CANCELLED. Idempotent in effect: a second call returns ErrNoActiveSubscription.
+func (s *EntitlementService) CancelMySubscription(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
+	e, err := s.ents.GetActiveSubscriptionEntitlement(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if e == nil {
+		return nil, domain.ErrNoActiveSubscription
+	}
+	st := domain.EntitlementCancelled
+	return s.ents.Update(ctx, e.ID, &st, nil)
+}

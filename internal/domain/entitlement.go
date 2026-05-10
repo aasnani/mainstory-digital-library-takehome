@@ -25,6 +25,7 @@ var (
 	ErrInvalidEntitlementStatus  = errors.New("invalid entitlement status")
 	ErrInvalidEntitlementShape   = errors.New("invalid entitlement: SINGLE_PURCHASE requires book_id; SUBSCRIPTION must omit book_id")
 	ErrInvalidEntitlementRequest = errors.New("invalid entitlement request")
+	ErrNoActiveSubscription      = errors.New("no active subscription")
 )
 
 type Entitlement struct {

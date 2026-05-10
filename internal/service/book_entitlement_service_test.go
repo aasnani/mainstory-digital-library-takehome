@@ -212,6 +212,13 @@ func (f *fakeEntRepo) Update(ctx context.Context, id uuid.UUID, status *string, 
 	}
 	if status != nil {
 		e.Status = *status
+		if e.Type == domain.EntitlementSubscription {
+			if e.Status == domain.EntitlementActive {
+				f.subs[e.UserID] = true
+			} else {
+				delete(f.subs, e.UserID)
+			}
+		}
 	}
 	if endsAt != nil {
 		e.EndsAt = endsAt
@@ -228,10 +235,9 @@ func (f *fakeEntRepo) HasActivePurchase(ctx context.Context, userID, bookID uuid
 }
 
 func (f *fakeEntRepo) GetActiveSubscriptionEntitlement(ctx context.Context, userID uuid.UUID) (*domain.Entitlement, error) {
-	for _, e := range f.entByUser[userID] {
-		if e.Type == domain.EntitlementSubscription && e.Status == domain.EntitlementActive {
-			c := e
-			return &c, nil
+	for _, e := range f.entByID {
+		if e.UserID == userID && e.Type == domain.EntitlementSubscription && e.Status == domain.EntitlementActive {
+			return cloneEntPtr(e), nil
 		}
 	}
 	return nil, nil

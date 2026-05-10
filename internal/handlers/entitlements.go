@@ -96,6 +96,20 @@ type patchEntitlementReq struct {
 	EndsAt *time.Time `json:"ends_at"`
 }
 
+func (h *EntitlementsHandler) CancelMySubscription(c *gin.Context) {
+	uid, ok := middleware.UserID(c)
+	if !ok {
+		api.WriteError(c, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+	e, err := h.svc.CancelMySubscription(c.Request.Context(), uid)
+	if err != nil {
+		api.WriteErrorFromDomain(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, e)
+}
+
 func (h *EntitlementsHandler) Patch(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {

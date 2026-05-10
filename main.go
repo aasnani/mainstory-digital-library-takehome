@@ -68,6 +68,7 @@ func main() {
 	authorized.Use(middleware.BearerAuth(cfg))
 	authorized.GET("/users/me", userH.Me)
 	authorized.GET("/users/me/library", bookH.MyLibrary)
+	authorized.POST("/users/me/subscription/cancel", entH.CancelMySubscription)
 	authorized.PATCH("/users/me", userH.PatchMe)
 	authorized.GET("/users", userH.List)
 	authorized.GET("/users/:id", userH.GetByID)

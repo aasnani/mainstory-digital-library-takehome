@@ -107,7 +107,7 @@ If the SPA origin differs from the API origin, the server must allow it via CORS
 
 | Role | Books | Entitlements |
 |------|--------|----------------|
-| **MEMBER** | **Read** only (`GET` list + detail). Detail **`content`** only if entitled (**subscription** or **purchase**). List/detail include **`is_accessible`** and **`access_reason`**. | **Create** (mock purchase/subscribe) and **read** **own** rows only. |
+| **MEMBER** | **Read** only (`GET` list + detail). Detail **`content`** only if entitled (**subscription** or **purchase**). List/detail include **`is_accessible`** and **`access_reason`**. | **Create** (mock purchase/subscribe), **read** **own** rows, **cancel own subscription** (**`POST /users/me/subscription/cancel`**). |
 | **LIBRARIAN** | **Create**, **read**, **update** (no **delete**). Always sees full **content** on detail. | **Read all** (list + get). **No** create / update / delete. |
 | **ADMIN** | Full **CRUD** | **Create**, **read**, **update** (no **delete** endpoint). |
 
@@ -133,7 +133,7 @@ Errors use this JSON shape:
 | **400** | Bad JSON, invalid path/query params, validation (e.g. password length). Empty **`PATCH`** body for self. **`current_password`** without **`new_password`** (or vice versa). Password fields on **`PATCH`** for someone else’s id. Book list search: **`q`**, **`title`**, or **`author`** shorter than **2** characters. Invalid **`min_price_cents`** / **`max_price_cents`** range. |
 | **401** | Missing or bad `Authorization`, wrong login credentials, wrong **`current_password`** when changing password, expired token. |
 | **403** | Logged in but not allowed (e.g. non-admin listing users). **`PATCH`** on yourself with **`email`** or **`role`**. Creating/updating books or entitlements without permission. |
-| **404** | Resource not found (e.g. unknown user id, unknown book when purchasing). |
+| **404** | Resource not found (e.g. unknown user id, unknown book when purchasing). **`POST /users/me/subscription/cancel`** when there is no **ACTIVE** subscription (**`no_active_subscription`**). |
 | **409** | Conflict (e.g. email already registered, duplicate entitlement / unique constraint, cannot delete book referenced by entitlements). |
 | **500** | Server error. |
 
@@ -168,6 +168,7 @@ Errors use this JSON shape:
 |--------|------|------|------|---------|
 | `GET` | `/api/v1/users/me` | Bearer | — | **200** user |
 | `GET` | `/api/v1/users/me/library` | Bearer | — | **200** “my purchases” payload (see below). |
+| `POST` | `/api/v1/users/me/subscription/cancel` | Bearer | — | **200** updated **entitlement** (**`status`**: **`CANCELLED`**). **404** if no **ACTIVE** **`SUBSCRIPTION`** (**`no_active_subscription`**). |
 | `PATCH` | `/api/v1/users/me` | Bearer | Self: **`current_password`** + **`new_password`** only (see above). No **`email`** / **`role`**. | **200** user |
 | `GET` | `/api/v1/users` | Bearer (**ADMIN**) | Query: `limit` (1–100, default 50), `offset` (≥0, default 0) | **200** `{ "users": User[] }` |
 | `GET` | `/api/v1/users/:id` | Bearer (**ADMIN** or **self**) | — | **200** user |
@@ -223,6 +224,8 @@ Types: **`SINGLE_PURCHASE`** (requires **`book_id`**) or **`SUBSCRIPTION`** (**o
 
 **MEMBER** **`POST`**: body **`{ "type": "SUBSCRIPTION" }`** or **`{ "type": "SINGLE_PURCHASE", "book_id": "<uuid>" }`**. Do **not** send **`user_id`** (always yourself). Idempotent conflicts → **409**.
 
+**MEMBER** **cancel subscription**: **`POST /api/v1/users/me/subscription/cancel`** (no body). Sets your **ACTIVE** **`SUBSCRIPTION`** to **`CANCELLED`**. Does **not** cancel per-book purchases; staff **`PATCH /entitlements/:id`** remains **ADMIN** only.
+
 **ADMIN** **`POST`**: include **`user_id`** for whose entitlement to create (required).
 
 **ADMIN** **`PATCH /entitlements/:id`**: optional **`status`**, **`ends_at`** (RFC3339).
@@ -239,10 +242,10 @@ Types: **`SINGLE_PURCHASE`** (requires **`book_id`**) or **`SUBSCRIPTION`** (**o
 ## Integration checklist
 
 1. Read **`API base URL`** from build/runtime config and prefix all paths.
-2. **Catalog** (**`GET /books`**, **`GET /books/:id`**) can be called **without** a token for the marketing/browse experience. After login/register, send **`Authorization: Bearer`** on protected routes (**`/users/*`**, **`/entitlements`**, mutations, **`/users/me/library`**). You may attach the same Bearer on catalog **GET**s so entitled users see **`content`** and correct **`is_accessible`** flags.
+2. **Catalog** (**`GET /books`**, **`GET /books/:id`**) can be called **without** a token for the marketing/browse experience. After login/register, send **`Authorization: Bearer`** on protected routes (**`/users/*`**, **`/entitlements`**, mutations, **`/users/me/library`**, **`/users/me/subscription/cancel`**). You may attach the same Bearer on catalog **GET**s so entitled users see **`content`** and correct **`is_accessible`** flags.
 3. On **401**, clear the token and show auth UI.
 4. Use **`GET /users/me`** as the source of current user identity.
 5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.
 6. To change password, **`PATCH`** your profile with **`current_password`** and **`new_password`**; then use the new password on the next login (existing JWTs stay valid until expiry).
 7. Main catalog: **`GET /books`** with **`limit`** / **`offset`** and optional filters; debounce search inputs and only send **`q`** / **`title`** / **`author`** when length ≥ **2**. Use **`is_accessible`** / **`access_reason`** for locked UI.
-8. “My library” page: **`GET /users/me/library`** once; no book **`content`** in that payload. Purchase or subscribe via **`POST /entitlements`** before reading **`GET /books/:id`** content as a **MEMBER**.
+8. “My library” page: **`GET /users/me/library`** once; no book **`content`** in that payload. Purchase or subscribe via **`POST /entitlements`** before reading **`GET /books/:id`** content as a **MEMBER**. To end a subscription, **`POST /users/me/subscription/cancel`** (expect **404** **`no_active_subscription`** if none is active).
