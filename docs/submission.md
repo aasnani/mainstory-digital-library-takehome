@@ -67,7 +67,7 @@ _Order: newest commit first. Copy the short hash from `git log --oneline`. Updat
 ### 2026-05-11 — Track agent docs, add WHY-only code comments
 
 - **Prompt**: Sync `main`, branch, add rationale comments across Go code (why structs/types/functions exist), stop gitignoring `AGENTS.md` and `docs/submission.md`, commit, push, open PR.
-- **Result**: `.gitignore` no longer excludes those docs; `AGENTS.md` + `docs/submission.md` tracked; `main.go` + `internal/**` carry intent-focused comments; local `.cursor/rules/agents-md.mdc` updated to match (still gitignored). PR link: add after merge.
+- **Result**: `.gitignore` no longer excludes those docs; `AGENTS.md` + `docs/submission.md` tracked; `main.go` + `internal/**` carry intent-focused comments; local `.cursor/rules/agents-md.mdc` updated to match (still gitignored). PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/7
 
 ### `24b98a2` — Subscription period and cancel-at-period-end
 
