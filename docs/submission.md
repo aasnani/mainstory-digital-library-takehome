@@ -67,7 +67,7 @@ _Order: newest commit first. Copy the short hash from `git log --oneline`. Updat
 ### 2026-05-11 — Additional handler/service/repository comments
 
 - **Prompt**: Add more comments; use short WHAT when no strong WHY.
-- **Result**: Expanded comments on user/book/entitlement handlers, `api` error types, `UserService`/`BookService`/`EntitlementService`, and repository methods; noted orphan purchase skip in `MyLibrary`.
+- **Result**: Expanded comments on user/book/entitlement handlers, `api` error types, `UserService`/`BookService`/`EntitlementService`, and repository methods; noted orphan purchase skip in `MyLibrary`. Commit: `66b3f3a` on PR #7.
 
 ### 2026-05-11 — Track agent docs, add WHY-only code comments
 
