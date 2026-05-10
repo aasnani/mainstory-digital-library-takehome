@@ -1,7 +1,7 @@
 # Local-only agent context / Cursor rules
 AGENTS.md
 .cursor/
-submission.md
+docs/submission.md
 
 # Local build artifact
 app
