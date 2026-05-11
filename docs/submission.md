@@ -68,7 +68,7 @@ _Order: newest commit first. Copy the short hash from `git log --oneline`. Updat
 ### 2026-05-11 — GET /books/recent (top five by added_at)
 
 - **Prompt**: Sync main, add endpoint for top five recently added books, tests, commit, push, PR; summarize API for frontend.
-- **Result**: **`GET /api/v1/books/recent`** under optional Bearer; **`BookRepository.ListRecentCatalogTop5`**, **`BookService.RecentlyAdded`**, **`BooksHandler.RecentlyAdded`**; service tests for order/limit and subscription flags; **`docs/api-contract.md`** updated. PR: _(add after `gh pr create`)_.
+- **Result**: **`GET /api/v1/books/recent`** under optional Bearer; **`BookRepository.ListRecentCatalogTop5`**, **`BookService.RecentlyAdded`**, **`BooksHandler.RecentlyAdded`**; service tests for order/limit and subscription flags; **`docs/api-contract.md`** updated. PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/8
 
 ### 2026-05-11 — Additional handler/service/repository comments
 
