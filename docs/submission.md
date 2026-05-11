@@ -40,6 +40,7 @@ Path: **`docs/submission.md`**. This file is **tracked** in git alongside `AGENT
   - **2026-05-10**: **Books + entitlements HTTP API** — **`MEMBER`**: read books (content gated by **`SUBSCRIPTION`** / **`SINGLE_PURCHASE`**); create/read **own** entitlements only. **`LIBRARIAN`**: CRU books (no delete), read all entitlements. **`ADMIN`**: CRUD books, CRU entitlements (no delete). Access evaluation in **`BookService`** + **`EntitlementRepository`** (subscription OR per-book purchase).
   - **2026-05-10**: **Catalog list** — **`GET /books`** uses **`ListCatalog`** (no **`content`** column in SQL); optional filters **`q`**, **`title`**, **`author`**, **`genre`**, **`language`**, **`is_fiction`**, price range; **`q`/`title`/`author`** require **≥ 2** runes when set. **`GET /users/me/library`** returns subscription + purchased books (metadata only) in one response for “my purchases” UI.
   - **2026-05-10**: **Public catalog browse** — **`GET /books`** and **`GET /books/:id`** require no JWT (**`OptionalBearerAuth`**); guests see metadata only and **LOCKED** access; valid Bearer applies entitlement/staff rules. Purchase/entitlement APIs remain authenticated.
+  - **2026-05-11**: **`GET /api/v1/books/recent`** — returns at most **five** **`BookListItem`** rows ordered by **`added_at`** descending (newest catalog additions first). Same optional Bearer and **`is_accessible`** / **`access_reason`** rules as **`GET /books`**; no **`content`** in SQL. Route registered before **`GET /books/:id`** so **`recent`** is not treated as a UUID.
   - **2026-05-10**: **Self-service subscription cancel** — **`POST /users/me/subscription/cancel`** (Bearer): sets **`cancelled_at`**; **`status`** stays **`ACTIVE`** until **`ends_at`** (30-day window from **`renewed_at`** on subscribe). **`no_active_subscription`** (**404**) when no current paid period. Flyway **V3** adds **`renewed_at`**, **`cancelled_at`**; backfills **`ends_at`** for existing subs.
 - **Error model**:
 - **Automated testing (2026-05-10)**: `go test ./...` is **fully in-process**—fakes/mocks for stores, no live Postgres in CI or required locally. Repository integration tests against `DATABASE_URL` were removed so the suite has **no external dependencies**. GitHub Actions workflow **Build and test** runs **`go build ./...`** then **`go test ./...`** with steps named accordingly.
@@ -63,6 +64,11 @@ Keep this short; **details live in the commit log.**
 ## Prompt & outcome log (by commit)
 
 _Order: newest commit first. Copy the short hash from `git log --oneline`. Update after each commit._
+
+### 2026-05-11 — GET /books/recent (top five by added_at)
+
+- **Prompt**: Sync main, add endpoint for top five recently added books, tests, commit, push, PR; summarize API for frontend.
+- **Result**: **`GET /api/v1/books/recent`** under optional Bearer; **`BookRepository.ListRecentCatalogTop5`**, **`BookService.RecentlyAdded`**, **`BooksHandler.RecentlyAdded`**; service tests for order/limit and subscription flags; **`docs/api-contract.md`** updated. PR: _(add after `gh pr create`)_.
 
 ### 2026-05-11 — Additional handler/service/repository comments
 

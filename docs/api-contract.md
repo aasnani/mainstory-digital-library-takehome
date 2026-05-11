@@ -27,7 +27,7 @@ Use exactly one space after `Bearer`.
 
 ### Public catalog (optional auth)
 
-**`GET /api/v1/books`** and **`GET /api/v1/books/:id`** work **without** any **`Authorization`** header so anonymous visitors can browse search results and book detail pages (metadata and pricing only; **no** full **`content`** until they are logged in and entitled).
+**`GET /api/v1/books`**, **`GET /api/v1/books/recent`**, and **`GET /api/v1/books/:id`** work **without** any **`Authorization`** header so anonymous visitors can browse search results, a small “new arrivals” strip, and book detail pages (metadata and pricing only; **no** full **`content`** until they are logged in and entitled).
 
 - **No header**: treated as a **guest** — every book shows **`is_accessible`: false** and **`access_reason`**: **`LOCKED`** on list; detail has **no** **`content`**.
 - **Valid `Authorization: Bearer …`**: same rules as a signed-in **MEMBER** / **LIBRARIAN** / **ADMIN** (subscription, purchases, staff preview). Use this on the book detail page after login so entitled users can read **`content`**.
@@ -213,6 +213,7 @@ Catalog fields include **`title`**, **`description`**, **`author`**, **`genre`**
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
 | `GET` | `/api/v1/books` | **Optional** Bearer | **Guest**: no header. Response **`{ "books": BookListItem[] }`**. No **`content`**. **`is_accessible`** / **`access_reason`** reflect entitlements when JWT present; else all **LOCKED**. |
+| `GET` | `/api/v1/books/recent` | **Optional** Bearer | Same response shape as **`GET /books`**: **`{ "books": BookListItem[] }`**, at most **five** rows, **`added_at`** descending (newest catalog additions first). No query params. No **`content`**. Same **`is_accessible`** / **`access_reason`** rules as the full list. |
 | `GET` | `/api/v1/books/:id` | **Optional** Bearer | **Guest**: catalog only, **`content`** omitted. **Logged-in**: same entitlement rules as before; staff always see **`content`**. |
 | `POST` | `/api/v1/books` | Bearer **LIBRARIAN** or **ADMIN** | Create catalog row (JSON body includes **`title`**, **`price_cents`**, optional metadata and **`content`**). **201**. |
 | `PATCH` | `/api/v1/books/:id` | Bearer **LIBRARIAN** or **ADMIN** | Full replacement-style payload (same shape as create). **200**. |
@@ -244,10 +245,10 @@ Types: **`SINGLE_PURCHASE`** (requires **`book_id`**) or **`SUBSCRIPTION`** (**o
 ## Integration checklist
 
 1. Read **`API base URL`** from build/runtime config and prefix all paths.
-2. **Catalog** (**`GET /books`**, **`GET /books/:id`**) can be called **without** a token for the marketing/browse experience. After login/register, send **`Authorization: Bearer`** on protected routes (**`/users/*`**, **`/entitlements`**, mutations, **`/users/me/library`**, **`/users/me/subscription/cancel`**). You may attach the same Bearer on catalog **GET**s so entitled users see **`content`** and correct **`is_accessible`** flags.
+2. **Catalog** (**`GET /books`**, **`GET /books/recent`**, **`GET /books/:id`**) can be called **without** a token for the marketing/browse experience. After login/register, send **`Authorization: Bearer`** on protected routes (**`/users/*`**, **`/entitlements`**, mutations, **`/users/me/library`**, **`/users/me/subscription/cancel`**). You may attach the same Bearer on catalog **GET**s so entitled users see **`content`** and correct **`is_accessible`** flags.
 3. On **401**, clear the token and show auth UI.
 4. Use **`GET /users/me`** as the source of current user identity.
 5. Use **`role`** from **`/users/me`** (or JWT) only for UI; handle **403** from the API when actions are not allowed.
 6. To change password, **`PATCH`** your profile with **`current_password`** and **`new_password`**; then use the new password on the next login (existing JWTs stay valid until expiry).
-7. Main catalog: **`GET /books`** with **`limit`** / **`offset`** and optional filters; debounce search inputs and only send **`q`** / **`title`** / **`author`** when length ≥ **2**. Use **`is_accessible`** / **`access_reason`** for locked UI.
+7. Main catalog: **`GET /books`** with **`limit`** / **`offset`** and optional filters; debounce search inputs and only send **`q`** / **`title`** / **`author`** when length ≥ **2**. Use **`is_accessible`** / **`access_reason`** for locked UI. For a home-page “new” strip, **`GET /books/recent`** (no params, max five books by **`added_at`**).
 8. “My library” page: **`GET /users/me/library`** once; no book **`content`** in that payload. Purchase or subscribe via **`POST /entitlements`** before reading **`GET /books/:id`** content as a **MEMBER**. To **stop renewing** at period end, **`POST /users/me/subscription/cancel`** (access continues until **`ends_at`**; UI can read **`cancelled_at`**). **404** **`no_active_subscription`** if there is no current period.

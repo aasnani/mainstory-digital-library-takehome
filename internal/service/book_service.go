@@ -77,6 +77,33 @@ func (s *BookService) List(ctx context.Context, userID uuid.UUID, role string, f
 	return out, nil
 }
 
+// RecentlyAdded returns the five most recently ingested catalog rows (by added_at), with the same access flags as List.
+func (s *BookService) RecentlyAdded(ctx context.Context, userID uuid.UUID, role string) ([]domain.BookListItem, error) {
+	rows, err := s.books.ListRecentCatalogTop5(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.BookListItem, 0, len(rows))
+	for _, b := range rows {
+		b.Content = ""
+		item := domain.BookListItem{Book: b}
+		switch role {
+		case domain.RoleLibrarian, domain.RoleAdmin:
+			item.IsAccessible = true
+			item.AccessReason = ""
+		default:
+			ok, reason, err := s.memberBookAccess(ctx, userID, b.ID)
+			if err != nil {
+				return nil, err
+			}
+			item.IsAccessible = ok
+			item.AccessReason = reason
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
 // MyLibrary batches subscription + purchases with book metadata for a single “account library” API call.
 func (s *BookService) MyLibrary(ctx context.Context, userID uuid.UUID) (*domain.MyLibrary, error) {
 	sub, err := s.ents.GetActiveSubscriptionEntitlement(ctx, userID)

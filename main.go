@@ -66,6 +66,8 @@ func main() {
 	// Catalog is its own group so browse works without login while still honoring JWT when the client sends one (marketing funnel + entitled reads).
 	catalog := v1.Group("")
 	catalog.Use(middleware.OptionalBearerAuth(cfg))
+	// Static path must register before /books/:id so "recent" is not parsed as a UUID id.
+	catalog.GET("/books/recent", bookH.RecentlyAdded)
 	catalog.GET("/books", bookH.List)
 	catalog.GET("/books/:id", bookH.GetByID)
 
