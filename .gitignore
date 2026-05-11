@@ -1,5 +1,8 @@
-# Cursor rules (local editor config)
-.cursor/
+# Cursor — ignore local editor state; version the shared agent rule only
+.cursor/*
+!.cursor/rules/
+.cursor/rules/*
+!.cursor/rules/agents-md.mdc
 
 # Local build artifact
 app

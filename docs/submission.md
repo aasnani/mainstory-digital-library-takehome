@@ -56,7 +56,7 @@ Path: **`docs/submission.md`**. This file is **tracked** in git alongside `AGENT
 
 Keep this short; **details live in the commit log.**
 
-- Work in **Cursor** with **`AGENTS.md`** + **`.cursor/rules/agents-md.mdc`** for product/architecture guardrails.
+- Work in **Cursor** with **`AGENTS.md`** + **`.cursor/rules/agents-md.mdc`** (tracked in git) for product/architecture guardrails.
 - Ask for **scoped** work (**database only**, **review only**, etc.) when you want a tight answer.
 - After **`git commit`** (or right before push), add **one block** under **Prompt & outcome log** for that commit hash: what you asked → what landed.
 - Prefer **one prompt ↔ one commit** when possible so the snapshot stays honest.
@@ -65,15 +65,20 @@ Keep this short; **details live in the commit log.**
 
 _Order: newest commit first. Copy the short hash from `git log --oneline`. Update after each commit._
 
+### 2026-05-11 — Track Cursor agent rule; align submission after merge
+
+- **Prompt**: Merged PR omitted some `AGENTS.md` / `docs/submission.md` updates; remove rules that blocked shipping them; sync `main`, commit docs + rule visibility, open PR.
+- **Result**: `.gitignore` uses negated patterns so **`.cursor/rules/agents-md.mdc`** is tracked; rule text no longer implies `submission.md` is gitignored; **PR #9** links in submission log; **AGENTS.md** repo map notes the rule is versioned. PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/10
+
 ### 2026-05-11 — Staff-filtered GET /users and GET /entitlements/staff
 
 - **Prompt**: Add filters for entitlements and users like books; librarian+admin only; rename branch and update PR title/body; frontend summary including top-5 recent books.
-- **Result**: **`GET /users`** now **`RequireAnyRole(LIBRARIAN, ADMIN)`** with query **`q`** (email substring, ≥2), **`role`**, **`user_id`**; **`UserRepository.ListFiltered`**. **`GET /entitlements/staff`** same role gate with **`user_id`**, **`book_id`**, **`type`**, **`status`**; **`ListAllFiltered`**. **`GET /entitlements`** unchanged for members. PR #8 retitled (see GitHub).
+- **Result**: **`GET /users`** now **`RequireAnyRole(LIBRARIAN, ADMIN)`** with query **`q`** (email substring, ≥2), **`role`**, **`user_id`**; **`UserRepository.ListFiltered`**. **`GET /entitlements/staff`** same role gate with **`user_id`**, **`book_id`**, **`type`**, **`status`**; **`ListAllFiltered`**. **`GET /entitlements`** unchanged for members. Shipped on **`main`** via https://github.com/aasnani/mainstory-digital-library-takehome/pull/9 (PR #8 closed when its head branch was deleted).
 
 ### 2026-05-11 — GET /books/recent (top five by added_at)
 
 - **Prompt**: Sync main, add endpoint for top five recently added books, tests, commit, push, PR; summarize API for frontend.
-- **Result**: **`GET /api/v1/books/recent`** under optional Bearer; **`BookRepository.ListRecentCatalogTop5`**, **`BookService.RecentlyAdded`**, **`BooksHandler.RecentlyAdded`**; service tests for order/limit and subscription flags; **`docs/api-contract.md`** updated. PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/8
+- **Result**: **`GET /api/v1/books/recent`** under optional Bearer; **`BookRepository.ListRecentCatalogTop5`**, **`BookService.RecentlyAdded`**, **`BooksHandler.RecentlyAdded`**; service tests for order/limit and subscription flags; **`docs/api-contract.md`** updated. Landed with staff filters in https://github.com/aasnani/mainstory-digital-library-takehome/pull/9
 
 ### 2026-05-11 — Additional handler/service/repository comments
 
@@ -83,7 +88,7 @@ _Order: newest commit first. Copy the short hash from `git log --oneline`. Updat
 ### 2026-05-11 — Track agent docs, add WHY-only code comments
 
 - **Prompt**: Sync `main`, branch, add rationale comments across Go code (why structs/types/functions exist), stop gitignoring `AGENTS.md` and `docs/submission.md`, commit, push, open PR.
-- **Result**: `.gitignore` no longer excludes those docs; `AGENTS.md` + `docs/submission.md` tracked; `main.go` + `internal/**` carry intent-focused comments; local `.cursor/rules/agents-md.mdc` updated to match (still gitignored). PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/7
+- **Result**: `.gitignore` no longer excludes those docs; `AGENTS.md` + `docs/submission.md` tracked; `main.go` + `internal/**` carry intent-focused comments; `.cursor/rules/agents-md.mdc` later tracked via selective `.gitignore` (see 2026-05-11 docs PR). PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/7
 
 ### `24b98a2` — Subscription period and cancel-at-period-end
 
