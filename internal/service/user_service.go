@@ -87,9 +87,12 @@ func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, 
 	return s.repo.GetByID(ctx, id)
 }
 
-// List pages users ordered by email — admin UI / support only at HTTP layer.
-func (s *UserService) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
-	return s.repo.List(ctx, limit, offset)
+// List pages users for staff directory views; filter validated before SQL.
+func (s *UserService) List(ctx context.Context, filter domain.UserListFilter, limit, offset int32) ([]domain.User, error) {
+	if err := domain.ValidateUserListFilter(filter); err != nil {
+		return nil, err
+	}
+	return s.repo.ListFiltered(ctx, filter, limit, offset)
 }
 
 // PatchInput separates admin mutations (email/role) from self-service password changes to prevent mixed semantics in one struct without rules.

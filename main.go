@@ -74,21 +74,24 @@ func main() {
 	// Everything else requires a valid token so user id/role come from JWT claims, never from request bodies.
 	authorized := v1.Group("")
 	authorized.Use(middleware.BearerAuth(cfg))
+	libOrAdmin := []string{domain.RoleLibrarian, domain.RoleAdmin}
+
 	authorized.GET("/users/me", userH.Me)
 	authorized.GET("/users/me/library", bookH.MyLibrary)
 	authorized.POST("/users/me/subscription/cancel", entH.CancelMySubscription)
 	authorized.PATCH("/users/me", userH.PatchMe)
-	authorized.GET("/users", userH.List)
+	authorized.GET("/users", middleware.RequireAnyRole(libOrAdmin...), userH.List)
 	authorized.GET("/users/:id", userH.GetByID)
 	authorized.PATCH("/users/:id", userH.PatchByID)
 	authorized.DELETE("/users/:id", userH.DeleteByID)
 
 	// Librarians curate; only admins delete so mistaken catalog wipes require elevated intent and match the API contract.
-	libOrAdmin := []string{domain.RoleLibrarian, domain.RoleAdmin}
 	authorized.POST("/books", middleware.RequireAnyRole(libOrAdmin...), bookH.Create)
 	authorized.PATCH("/books/:id", middleware.RequireAnyRole(libOrAdmin...), bookH.Update)
 	authorized.DELETE("/books/:id", middleware.RequireRole(domain.RoleAdmin), bookH.Delete)
 
+	// Static path before :id so "staff" is not parsed as an entitlement UUID.
+	authorized.GET("/entitlements/staff", middleware.RequireAnyRole(libOrAdmin...), entH.ListStaff)
 	authorized.GET("/entitlements", entH.List)
 	authorized.GET("/entitlements/:id", entH.GetByID)
 	authorized.POST("/entitlements", entH.Create)

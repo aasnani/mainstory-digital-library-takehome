@@ -70,13 +70,13 @@ curl -s -X POST "$BASE/api/v1/auth/login" \
   -d '{"email":"demo.reader@example.com","password":"securepass123"}'
 ```
 
-### 4) Admin list (`ADMIN` role required)
+### 4) Staff user list (`LIBRARIAN` or `ADMIN` role required)
 
 Promote your user in SQL first (see below), then login again and use that JWT:
 
 ```bash
-curl -s "$BASE/api/v1/users?limit=20&offset=0" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -s "$BASE/api/v1/users?limit=20&offset=0&role=MEMBER" \
+  -H "Authorization: Bearer $STAFF_TOKEN"
 ```
 
 ### 5) Negative checks

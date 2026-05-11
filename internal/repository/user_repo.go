@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -97,13 +99,32 @@ func (r *UserRepository) GetAuthCredentialsByID(ctx context.Context, id uuid.UUI
 	return &c, nil
 }
 
-// List orders by email for deterministic admin paging.
-func (r *UserRepository) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
-	const q = `
-		SELECT id, email, role FROM users
-		ORDER BY email ASC
-		LIMIT $1 OFFSET $2`
-	rows, err := r.pool.Query(ctx, q, limit, offset)
+// ListFiltered orders by email; WHERE clauses mirror book list style (AND-combined optional filters).
+func (r *UserRepository) ListFiltered(ctx context.Context, filter domain.UserListFilter, limit, offset int32) ([]domain.User, error) {
+	var b strings.Builder
+	b.WriteString(`SELECT id, email, role FROM users WHERE 1=1`)
+	args := make([]interface{}, 0, 8)
+	n := 1
+	if filter.UserID != nil {
+		fmt.Fprintf(&b, ` AND id = $%d`, n)
+		args = append(args, *filter.UserID)
+		n++
+	}
+	if filter.Q != "" {
+		pat := "%" + filter.Q + "%"
+		fmt.Fprintf(&b, ` AND email ILIKE $%d`, n)
+		args = append(args, pat)
+		n++
+	}
+	if filter.Role != "" {
+		fmt.Fprintf(&b, ` AND role = $%d`, n)
+		args = append(args, filter.Role)
+		n++
+	}
+	fmt.Fprintf(&b, ` ORDER BY email ASC LIMIT $%d OFFSET $%d`, n, n+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, b.String(), args...)
 	if err != nil {
 		return nil, err
 	}

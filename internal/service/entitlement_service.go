@@ -20,7 +20,7 @@ func NewEntitlementService(ents repository.EntitlementStore) *EntitlementService
 	return &EntitlementService{ents: ents}
 }
 
-// List: MEMBER sees own; LIBRARIAN and ADMIN see all.
+// List: MEMBER sees own; LIBRARIAN and ADMIN see all (unfiltered slice — use ListStaff for filter browse).
 func (s *EntitlementService) List(ctx context.Context, actorID uuid.UUID, role string, limit, offset int32) ([]domain.Entitlement, error) {
 	switch role {
 	case domain.RoleLibrarian, domain.RoleAdmin:
@@ -28,6 +28,14 @@ func (s *EntitlementService) List(ctx context.Context, actorID uuid.UUID, role s
 	default:
 		return s.ents.ListByUser(ctx, actorID, limit, offset)
 	}
+}
+
+// ListStaff returns global entitlements with optional filters; caller must enforce librarian/admin only.
+func (s *EntitlementService) ListStaff(ctx context.Context, filter domain.EntitlementListFilter, limit, offset int32) ([]domain.Entitlement, error) {
+	if err := domain.ValidateEntitlementListFilter(filter); err != nil {
+		return nil, err
+	}
+	return s.ents.ListAllFiltered(ctx, filter, limit, offset)
 }
 
 // Get: MEMBER only if own; librarian and admin any.

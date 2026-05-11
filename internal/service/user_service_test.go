@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -102,11 +103,22 @@ func (f *fakeStore) UpdatePasswordHash(ctx context.Context, id uuid.UUID, passwo
 	return nil
 }
 
-func (f *fakeStore) List(ctx context.Context, limit, offset int32) ([]domain.User, error) {
+func (f *fakeStore) ListFiltered(ctx context.Context, filter domain.UserListFilter, limit, offset int32) ([]domain.User, error) {
 	var out []domain.User
 	for _, u := range f.byID {
-		out = append(out, *cloneUser(u))
+		cu := cloneUser(u)
+		if filter.UserID != nil && cu.ID != *filter.UserID {
+			continue
+		}
+		if filter.Role != "" && cu.Role != filter.Role {
+			continue
+		}
+		if filter.Q != "" && !strings.Contains(strings.ToLower(cu.Email), strings.ToLower(filter.Q)) {
+			continue
+		}
+		out = append(out, *cu)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
 	if int(offset) >= len(out) {
 		return nil, nil
 	}
@@ -367,6 +379,20 @@ func TestPatch_SelfChangePassword_WrongCurrent(t *testing.T) {
 	_, err := svc.Patch(context.Background(), u.ID, u.ID, PatchInput{CurrentPassword: &cur, NewPassword: &n}, false)
 	if !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatalf("want unauthorized, got %v", err)
+	}
+}
+
+func TestUserService_List_FilterByRole(t *testing.T) {
+	store := newFakeStore()
+	_, _ = store.Create(context.Background(), "member@x.com", domain.RoleMember, mustHash(t, "pw123456"))
+	_, _ = store.Create(context.Background(), "lib@x.com", domain.RoleLibrarian, mustHash(t, "pw123456"))
+	svc := NewUserService(testConfig(t), store)
+	out, err := svc.List(context.Background(), domain.UserListFilter{Role: domain.RoleMember}, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Email != "member@x.com" {
+		t.Fatalf("%+v", out)
 	}
 }
 

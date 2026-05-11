@@ -66,3 +66,22 @@ func ValidEntitlementStatus(s string) bool {
 		return false
 	}
 }
+
+// EntitlementListFilter drives staff-only GET /entitlements/staff; all fields optional and combined with AND.
+type EntitlementListFilter struct {
+	UserID *uuid.UUID
+	BookID *uuid.UUID
+	Type   string
+	Status string
+}
+
+// ValidateEntitlementListFilter rejects unknown type/status strings before SQL.
+func ValidateEntitlementListFilter(f EntitlementListFilter) error {
+	if f.Type != "" && !ValidEntitlementType(f.Type) {
+		return ErrInvalidEntitlementType
+	}
+	if f.Status != "" && !ValidEntitlementStatus(f.Status) {
+		return ErrInvalidEntitlementStatus
+	}
+	return nil
+}

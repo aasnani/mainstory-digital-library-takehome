@@ -39,3 +39,15 @@ func TestValidRole(t *testing.T) {
 		t.Fatal("invalid role")
 	}
 }
+
+func TestValidateUserListFilter(t *testing.T) {
+	if err := ValidateUserListFilter(UserListFilter{Q: "x"}); err != ErrSearchTermTooShort {
+		t.Fatalf("got %v", err)
+	}
+	if err := ValidateUserListFilter(UserListFilter{Role: "NOPE"}); err != ErrInvalidRole {
+		t.Fatalf("got %v", err)
+	}
+	if err := ValidateUserListFilter(UserListFilter{Q: "ab", Role: RoleMember}); err != nil {
+		t.Fatal(err)
+	}
+}

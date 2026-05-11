@@ -65,6 +65,11 @@ Keep this short; **details live in the commit log.**
 
 _Order: newest commit first. Copy the short hash from `git log --oneline`. Update after each commit._
 
+### 2026-05-11 — Staff-filtered GET /users and GET /entitlements/staff
+
+- **Prompt**: Add filters for entitlements and users like books; librarian+admin only; rename branch and update PR title/body; frontend summary including top-5 recent books.
+- **Result**: **`GET /users`** now **`RequireAnyRole(LIBRARIAN, ADMIN)`** with query **`q`** (email substring, ≥2), **`role`**, **`user_id`**; **`UserRepository.ListFiltered`**. **`GET /entitlements/staff`** same role gate with **`user_id`**, **`book_id`**, **`type`**, **`status`**; **`ListAllFiltered`**. **`GET /entitlements`** unchanged for members. PR #8 retitled (see GitHub).
+
 ### 2026-05-11 — GET /books/recent (top five by added_at)
 
 - **Prompt**: Sync main, add endpoint for top five recently added books, tests, commit, push, PR; summarize API for frontend.

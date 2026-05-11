@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -74,13 +76,8 @@ func (h *UsersHandler) PatchMe(c *gin.Context) {
 	c.JSON(http.StatusOK, u)
 }
 
-// List is GET /users with limit/offset — admin-only; duplicates pagination parsing pattern from books for consistency.
+// List is GET /users — librarian or admin only (enforced in main); supports query filters like the book catalog.
 func (h *UsersHandler) List(c *gin.Context) {
-	role, ok := middleware.Role(c)
-	if !ok || role != domain.RoleAdmin {
-		api.WriteError(c, http.StatusForbidden, "forbidden", "admin role required")
-		return
-	}
 	limit := int32(50)
 	offset := int32(0)
 	if v := c.Query("limit"); v != "" {
@@ -99,12 +96,31 @@ func (h *UsersHandler) List(c *gin.Context) {
 		}
 		offset = int32(n)
 	}
-	users, err := h.svc.List(c.Request.Context(), limit, offset)
+	filter, err := parseUserListFilter(c)
 	if err != nil {
-		api.WriteError(c, http.StatusInternalServerError, "internal_error", "failed to list users")
+		api.WriteError(c, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	users, err := h.svc.List(c.Request.Context(), filter, limit, offset)
+	if err != nil {
+		api.WriteErrorFromDomain(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"users": users})
+}
+
+func parseUserListFilter(c *gin.Context) (domain.UserListFilter, error) {
+	var f domain.UserListFilter
+	f.Q = strings.TrimSpace(c.Query("q"))
+	f.Role = strings.TrimSpace(c.Query("role"))
+	if v := strings.TrimSpace(c.Query("user_id")); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return f, fmt.Errorf("invalid user_id (expected UUID)")
+		}
+		f.UserID = &id
+	}
+	return f, nil
 }
 
 // GetByID returns one user for admin or for self (same id as JWT subject).

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/mail"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -30,6 +31,24 @@ type User struct {
 	ID    uuid.UUID `json:"id"`
 	Email string    `json:"email"`
 	Role  string    `json:"role"`
+}
+
+// UserListFilter drives staff-only GET /users query params; empty filter lists all rows (subject to limit/offset).
+type UserListFilter struct {
+	UserID *uuid.UUID
+	Q      string // substring on email (case-insensitive); if set, must satisfy MinSearchRunes like catalog search
+	Role   string // exact MEMBER | LIBRARIAN | ADMIN when non-empty
+}
+
+// ValidateUserListFilter enforces the same minimum length as book search for q to reduce noisy queries.
+func ValidateUserListFilter(f UserListFilter) error {
+	if f.Q != "" && utf8.RuneCountInString(f.Q) < MinSearchRunes {
+		return ErrSearchTermTooShort
+	}
+	if f.Role != "" && !ValidRole(f.Role) {
+		return ErrInvalidRole
+	}
+	return nil
 }
 
 // ValidateEmail exists because we reject garbage before hitting Postgres unique constraints (clearer errors than 23505).

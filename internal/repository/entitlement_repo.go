@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +24,7 @@ type EntitlementStore interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Entitlement, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int32) ([]domain.Entitlement, error)
 	ListAll(ctx context.Context, limit, offset int32) ([]domain.Entitlement, error)
+	ListAllFiltered(ctx context.Context, filter domain.EntitlementListFilter, limit, offset int32) ([]domain.Entitlement, error)
 	Update(ctx context.Context, id uuid.UUID, status *string, endsAt *time.Time) (*domain.Entitlement, error)
 	SetSubscriptionCancelledAt(ctx context.Context, id uuid.UUID, at time.Time) (*domain.Entitlement, error)
 	ExpireStaleSubscriptionsForUser(ctx context.Context, userID uuid.UUID) error
@@ -95,6 +98,43 @@ func (r *EntitlementRepository) ListAll(ctx context.Context, limit, offset int32
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2`
 	rows, err := r.pool.Query(ctx, q, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEntitlementRows(rows)
+}
+
+// ListAllFiltered is the staff browse view: optional user_id, book_id, type, status filters AND-combined.
+func (r *EntitlementRepository) ListAllFiltered(ctx context.Context, filter domain.EntitlementListFilter, limit, offset int32) ([]domain.Entitlement, error) {
+	var b strings.Builder
+	b.WriteString(`SELECT ` + entitlementSelectCols + ` FROM entitlements WHERE 1=1`)
+	args := make([]interface{}, 0, 10)
+	n := 1
+	if filter.UserID != nil {
+		fmt.Fprintf(&b, ` AND user_id = $%d`, n)
+		args = append(args, *filter.UserID)
+		n++
+	}
+	if filter.BookID != nil {
+		fmt.Fprintf(&b, ` AND book_id = $%d`, n)
+		args = append(args, *filter.BookID)
+		n++
+	}
+	if filter.Type != "" {
+		fmt.Fprintf(&b, ` AND type = $%d`, n)
+		args = append(args, filter.Type)
+		n++
+	}
+	if filter.Status != "" {
+		fmt.Fprintf(&b, ` AND status = $%d`, n)
+		args = append(args, filter.Status)
+		n++
+	}
+	fmt.Fprintf(&b, ` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, n, n+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, b.String(), args...)
 	if err != nil {
 		return nil, err
 	}

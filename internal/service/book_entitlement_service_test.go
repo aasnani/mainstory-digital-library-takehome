@@ -263,6 +263,35 @@ func (f *fakeEntRepo) ListAll(ctx context.Context, limit, offset int32) ([]domai
 	return out, nil
 }
 
+func (f *fakeEntRepo) ListAllFiltered(ctx context.Context, filter domain.EntitlementListFilter, limit, offset int32) ([]domain.Entitlement, error) {
+	var matched []domain.Entitlement
+	for _, e := range f.allEnt {
+		if filter.UserID != nil && e.UserID != *filter.UserID {
+			continue
+		}
+		if filter.BookID != nil && (e.BookID == nil || *e.BookID != *filter.BookID) {
+			continue
+		}
+		if filter.Type != "" && e.Type != filter.Type {
+			continue
+		}
+		if filter.Status != "" && e.Status != filter.Status {
+			continue
+		}
+		matched = append(matched, e)
+	}
+	if int(offset) >= len(matched) {
+		return nil, nil
+	}
+	end := int(offset) + int(limit)
+	if end > len(matched) {
+		end = len(matched)
+	}
+	out := make([]domain.Entitlement, end-int(offset))
+	copy(out, matched[int(offset):end])
+	return out, nil
+}
+
 func (f *fakeEntRepo) Update(ctx context.Context, id uuid.UUID, status *string, endsAt *time.Time) (*domain.Entitlement, error) {
 	e, ok := f.entByID[id]
 	if !ok {
