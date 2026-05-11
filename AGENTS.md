@@ -133,12 +133,6 @@ Prefer constraints that make idempotency easy (e.g. “purchase this book” is 
 
 ## AI usage conventions (for the takehome)
 
-The submission requires describing AI usage. Capture this in **`docs/submission.md`**:
-
-- prompts you used
-- iterations and what improved
-- any guardrails / checks you applied
-
 Do **not** add “AI-generated” attribution to commit messages or PR text.
 
 ---
