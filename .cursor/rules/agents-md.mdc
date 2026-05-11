@@ -1,0 +1,38 @@
+---
+description: Read AGENTS.md; keep tracked docs aligned with API and product changes
+alwaysApply: true
+---
+
+# Agent context
+
+Read **`AGENTS.md`** for repo map, product rules (subscription vs purchase access), conventions, and the append-only **Agent memory log**.
+
+If instructions conflict, prefer the codebase and **`AGENTS.md`**, then the current user message.
+
+**`docs/submission.md`** and **`AGENTS.md`** are **tracked in git**. When a change affects product, access rules, or API behavior, update **`docs/api-contract.md`** in the same change batch and add or extend **`docs/submission.md`** / **`AGENTS.md`** as appropriate so the PR contains the full story.
+
+## Product rules to preserve
+
+- **Subscription** grants access to **all books** while active.
+- **Non-subscribed** users can only access books they **purchased**.
+- The API should make locked vs accessible clear to the frontend (e.g. `is_accessible`, `access_reason`).
+- Purchase endpoints should be **idempotent** for already-owned books.
+
+## Architecture expectations
+
+- Keep controllers thin; business rules in services; access control centralized and reused.
+- Validate inputs; return consistent error shapes and correct HTTP codes.
+
+## API contract (`docs/api-contract.md`)
+
+**Scope**: browser integration only (URLs, JSON, auth, errors). Operator/env detail stays in **README**.
+
+Whenever you change **routes, request/response JSON, status codes, auth behavior, CORS, JWT claims, or any frontend-visible API behavior**, update **`docs/api-contract.md`** in the **same change series** as the code.
+
+## Repo map (`AGENTS.md`)
+
+The repo map must be **non-speculative**. When you add top-level structure, update **`AGENTS.md`** and append **one line** to the **Agent memory log** in the same change series.
+
+## No assistant attribution in git metadata
+
+Do not add tool or assistant attribution to PR titles, PR bodies, or commit messages.

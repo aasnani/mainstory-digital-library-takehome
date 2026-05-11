@@ -31,7 +31,7 @@ This section is intentionally **non-speculative**.
   - `docs/submission.md`: product + system design write-up + prompt-by-commit log.
   - `docs/api-contract.md`: SPA/Lovable integration reference.
   - `AGENTS.md`: this file (repo map + conventions + agent memory log).
-  - `.cursor/rules/agents-md.mdc`: Cursor rule to enforce this file’s upkeep (may be gitignored).
+  - `.cursor/rules/agents-md.mdc`: Cursor rule for agent upkeep (tracked in git).
 
 - **Application (`internal/`)**
   - `internal/config/`: environment configuration.
@@ -177,4 +177,5 @@ Do **not** add “AI-generated” attribution to commit messages or PR text.
 - **2026-05-11** `(dx) More WHY/WHAT comments on handlers, services, repositories — easier review of HTTP vs domain vs SQL responsibilities [files: internal/handlers/*.go, internal/service/*.go, internal/repository/*.go, internal/api/json.go, internal/middleware/auth.go, docs/submission.md]`
 - **2026-05-11** `(api) GET /books/recent — optional-auth top five books by added_at for home-page new arrivals; same BookListItem shape as catalog list [files: main.go, internal/repository/book_repo.go, internal/service/book_service.go, internal/handlers/books.go, internal/service/book_entitlement_service_test.go, docs/api-contract.md]`
 - **2026-05-11** `(api) Staff user + entitlement filters — GET /users for LIBRARIAN+ADMIN with q/role/user_id; GET /entitlements/staff with user_id/book_id/type/status; members keep GET /entitlements [files: main.go, internal/domain/*.go, internal/repository/*.go, internal/service/*.go, internal/handlers/*.go, docs/api-contract.md]`
+- **2026-05-11** `(docs, dx) Track .cursor/rules/agents-md.mdc — selective .gitignore so agent rule ships with repo; submission log PR #9 links; remove “gitignored” doc drift [files: .gitignore, .cursor/rules/agents-md.mdc, AGENTS.md, docs/submission.md]`
 
