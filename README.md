@@ -1,133 +1,178 @@
-# mainstory-digital-library-takehome
+# Mainstory Digital Library (take-home backend)
 
-## Frontend / Lovable
+HTTP API for a **paid digital storybook library** MVP: **subscription** (all books while active) and **one-time purchases** (per book). This repository is a **Go** service using **Gin**, **PostgreSQL**, and **JWT bearer authentication**.
 
-All browser-facing API behavior (paths, JSON, auth, errors, CORS) is documented in **[docs/api-contract.md](docs/api-contract.md)**. Keep that file updated whenever the HTTP API changes.
+---
 
-## Environment variables (reference)
+## What this project is
 
-The process reads **only** the standard environment (the app does **not** auto-load a `.env` file). Set variables in the shell, your process manager, or a tool like `direnv`.
+A small **JSON REST API** (`/api/v1/...`) that backs catalog browsing, member library access, mock purchases/subscriptions, and **role-based** staff tools (**MEMBER**, **LIBRARIAN**, **ADMIN**). The server evaluates **entitlements** (subscription or purchase) when deciding whether book **content** is visible and how list/detail **`access_reason`** fields are set.
 
-### Must be set (server will not start without these)
+**Authoritative browser integration** (paths, bodies, status codes, auth, errors, CORS expectations) lives in **[docs/api-contract.md](docs/api-contract.md)**.
 
-| Variable | How to obtain / what to put |
-|----------|------------------------------|
-| **`DATABASE_URL`** | Full PostgreSQL connection string. **Local example:** `postgresql://USER:PASSWORD@127.0.0.1:5432/DBNAME?sslmode=disable`. **Managed (e.g. Render):** copy the “Internal” or “External” URL from the dashboard; use `sslmode=require` when the provider requires TLS. |
-| **`JWT_SECRET`** | A long, random secret used to **sign** JWTs (not stored in the DB). Generate one e.g. `openssl rand -base64 48` and set it in production secrets—never commit it. |
+**Agent-oriented repo map and change log** live in **[AGENTS.md](AGENTS.md)**. Deeper product and prompt history notes are in **[docs/submission.md](docs/submission.md)**.
 
-### Optional (defaults shown)
+---
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| **`PORT`** | `8080` | HTTP listen port. |
-| **`JWT_EXPIRY_HOURS`** | `24` | Access-token lifetime in hours (`expires_in` in auth responses derives from this). |
-| **`CORS_ALLOW_ORIGIN`** | `*` | Value sent as `Access-Control-Allow-Origin`. For production browser apps, set to your frontend origin (e.g. `https://app.example.com`). |
+## Feature set (product)
 
-## Run (local)
+| Area | Behavior |
+|------|----------|
+| **Auth** | Register and login return a **Bearer JWT**; protected routes derive **user id** and **role** from the token, not from client-supplied ids. |
+| **Catalog** | Paginated, filterable **book list** without full **content** in list SQL; **optional JWT** on catalog routes so guests can browse metadata while signed-in users get correct **access** flags. |
+| **Recent titles** | **Top five** books by catalog **`added_at`** for home-page style surfaces; same list shape as the main catalog. |
+| **Book detail** | Metadata for all; full **content** only when the caller is **entitled** (active subscription or purchase for that book), or **staff** preview rules apply. |
+| **Access UX** | List and detail expose **per-book** accessibility hints (e.g. locked vs subscription vs purchased) so a SPA can render paywalls consistently. |
+| **Purchases** | **Single-book** entitlements are **idempotent** at the data layer (at most one purchase row per user+book). |
+| **Subscriptions** | **All-books** subscription model (`book_id` null on subscription rows); **cancel at period end** keeps access until **`ends_at`**; renewal/cancel timestamps support the billing window. |
+| **Member library** | Aggregated “my library” payload (subscription + purchased books, metadata) for account pages. |
+| **Self-service** | Password change for the signed-in user; members can **cancel renewal** for the current subscription period. |
+| **Staff** | **Librarian**/**Admin**: curated book writes (delete is **admin-only**); **filtered** user directory and **filtered** global entitlement browse; **Admin** can patch entitlements and manage users per contract. |
 
-```bash
-export DATABASE_URL='postgresql://...'
-export JWT_SECRET='your-long-random-secret'
-go run .
+There is **no** public API to grant **ADMIN** or **LIBRARIAN**; those roles are expected to exist only via **database operations** your operators control.
+
+---
+
+## Architecture (code)
+
+Layers are kept **thin at the HTTP edge** and **testable in the middle**:
+
+- **`internal/handlers`** — parse/validate HTTP, map domain errors to status codes, JSON envelopes.
+- **`internal/service`** — subscriptions, purchases, catalog access evaluation, user operations.
+- **`internal/repository`** — SQL and row mapping behind small store interfaces (swapped for **fakes** in tests).
+- **`internal/domain`** — shared validation and types (roles, filters, entitlement invariants).
+- **`internal/middleware`** — Bearer auth, optional Bearer for catalog, CORS, role guards.
+- **`internal/config`** — process configuration loading (required connectivity and crypto material, optional tuning); **this README intentionally does not list environment variable names**—see source when wiring a deployment.
+
+```mermaid
+flowchart LR
+  subgraph HTTP
+    R[Gin router]
+    M[Middleware: CORS, JWT]
+    H[Handlers]
+  end
+  subgraph App
+    S[Services]
+    D[Domain validation]
+  end
+  subgraph Data
+    P[Repository SQL]
+    DB[(PostgreSQL)]
+  end
+  R --> M --> H
+  H --> S
+  S --> D
+  S --> P
+  P --> DB
 ```
 
-- `GET /healthcheck` → `UP`
-- JSON API: **`/api/v1/...`** — see [docs/api-contract.md](docs/api-contract.md).
+**Migrations** are versioned SQL under **`db/migration/`** (Flyway-style names). Apply them with your organization’s migration process against the same Postgres instance the app uses.
 
-## Manual API testing (`curl`)
+---
 
-Prerequisites: **Flyway migrations applied** to the DB in `DATABASE_URL`, server running as above.
+## Data model (schema)
 
-### 1) Health
+Conceptual **entity-relationship** view (constraints and partial unique indexes are simplified in the diagram; see SQL for exact definitions):
 
-```bash
-curl -s http://localhost:8080/healthcheck
+**Relationships:** every entitlement belongs to one **user**. **`book_id`** references **books** only for **single purchase** rows; **subscription** rows keep **`book_id`** null (all-books access).
+
+```mermaid
+erDiagram
+  users ||--o{ entitlements : has
+
+  users {
+    uuid id PK
+    string email UK
+    string role "MEMBER | LIBRARIAN | ADMIN"
+    text password_hash "bcrypt; V2 migration"
+  }
+
+  books {
+    uuid id PK
+    string title
+    text description
+    string author
+    string genre
+    boolean is_fiction
+    date published_date
+    timestamptz added_at
+    string language
+    int price_cents
+    text content
+  }
+
+  entitlements {
+    uuid id PK
+    uuid user_id FK
+    uuid book_id FK "NULL for subscription"
+    string type "SINGLE_PURCHASE | SUBSCRIPTION"
+    string status "ACTIVE | CANCELLED | PAST_DUE"
+    timestamptz ends_at
+    timestamptz created_at
+    timestamptz renewed_at "V3"
+    timestamptz cancelled_at "V3"
+  }
 ```
 
-### 2) Register → token → current user
+**Notable invariants (MVP)**
 
-```bash
-BASE=http://localhost:8080
+- **Purchase** rows require **`book_id`**; **subscription** rows require **`book_id`** to be **null** (all-books access).
+- **At most one** active **subscription** row per user (partial unique index).
+- **At most one** **purchase** row per **(user, book)** (partial unique index) so retries do not duplicate ownership.
 
-REGISTER_JSON=$(curl -s -X POST "$BASE/api/v1/auth/register" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo.reader@example.com","password":"securepass123"}')
-echo "$REGISTER_JSON"
+---
 
-TOKEN=$(echo "$REGISTER_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+## Testing
 
-curl -s "$BASE/api/v1/users/me" \
-  -H "Authorization: Bearer $TOKEN"
-```
+| Concern | Approach |
+|---------|----------|
+| **Unit / service tests** | Table-driven tests under **`internal/domain`** and **`internal/service`** with **in-memory fakes** for repositories—**no Docker** and **no live Postgres** required. |
+| **Scope** | Access rules, subscription windows, catalog list shaping, staff list filters, and related edge cases are covered in Go tests. |
+| **Packages without `_test.go`** | Handlers and repositories rely on service-level tests and fakes rather than spinning up a real database in CI. |
 
-If you don’t have Python, copy **`access_token`** from the JSON manually into **`TOKEN`**.
-
-### 3) Login (existing email)
-
-```bash
-curl -s -X POST "$BASE/api/v1/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo.reader@example.com","password":"securepass123"}'
-```
-
-### 4) Staff user list (`LIBRARIAN` or `ADMIN` role required)
-
-Promote your user in SQL first (see below), then login again and use that JWT:
-
-```bash
-curl -s "$BASE/api/v1/users?limit=20&offset=0&role=MEMBER" \
-  -H "Authorization: Bearer $STAFF_TOKEN"
-```
-
-### 5) Negative checks
-
-Wrong/missing token:
-
-```bash
-curl -s -o /dev/stderr -w "%{http_code}" "$BASE/api/v1/users/me"
-curl -s "$BASE/api/v1/users/me" -H 'Authorization: Bearer invalid'
-```
-
-Expect **401** for missing/invalid Bearer token.
-
-## Automated tests (Go)
-
-All tests are **in-process** (no Docker, no live Postgres). CI runs `go test ./...` the same way you can locally.
+**Local**
 
 ```bash
 go test ./...
 ```
 
-## Admin user (manual, no API bootstrap)
+**Continuous integration**
 
-Create or promote an admin with **`psql`** (or any SQL client). Example: set **`ADMIN`** for an existing login email:
+On pull requests targeting **`main`**, GitHub Actions runs **`go build ./...`** then **`go test ./...`** on **ubuntu-latest** using the **Go version from `go.mod`**.
 
-```sql
-UPDATE users SET role = 'ADMIN' WHERE lower(email) = lower('you@example.com');
-```
+---
 
-Then **`POST /api/v1/auth/login`** with that email and password returns a JWT whose **`role`** claim is **`ADMIN`**.
-
-## Build + run (deployment)
+## Build
 
 ```bash
-go build -tags netgo -ldflags '-s -w' -o app
-./app
+go build -o app .
 ```
 
-## Database migrations (Flyway)
+The binary serves HTTP on the port supplied by your runtime configuration (see **`internal/config`**).
 
-Versioned SQL lives under `db/migration/` (for example `V1__initial_schema.sql`, `V2__users_password_hash.sql`, `V3__subscription_period_renewal_cancel_at.sql`). Apply with the Flyway CLI pointed at your Postgres URL; see the Flyway docs for `-locations` and JDBC URLs.
+---
 
-**`V2__users_password_hash.sql`** adds **`password_hash`** to **`users`**. If an older dev database still has email-only users without hashes, clear or migrate those rows before applying **`V2`** (the migration expects every user row to gain a password hash).
+## Health
 
-Example (remote Postgres — replace host, database, user, and use a secure password source):
-
-```bash
-flyway \
-  -locations=filesystem:db/migration \
-  -url=jdbc:postgresql://HOST:5432/DATABASE \
-  -user=USER \
-  -password=PASSWORD \
-  migrate
+```http
+GET /healthcheck
 ```
+
+Returns **`UP`** when the process is running (this endpoint does not exercise the database).
+
+---
+
+## Documentation map
+
+| Document | Audience | Contents |
+|----------|----------|----------|
+| **[docs/api-contract.md](docs/api-contract.md)** | Frontend / SPA | Endpoints, JSON, auth, errors—**safe to share** with integrators. |
+| **[AGENTS.md](AGENTS.md)** | Contributors + AI agents | Repo map, product rules, append-only change log. |
+| **[docs/submission.md](docs/submission.md)** | Reviewers | Product/system notes and prompt-by-commit history. |
+| **`db/migration/*.sql`** | Backend + DBAs | Canonical schema and constraints. |
+
+---
+
+## Security note for operators
+
+This README avoids listing **environment variable names**, **connection string patterns**, **secret generation commands**, and **copy-paste migration credentials**. Treat deployment wiring, secrets, and database access as **operator documentation** stored alongside your infrastructure—not in this public overview.

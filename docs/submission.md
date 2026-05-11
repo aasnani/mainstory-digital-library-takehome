@@ -65,6 +65,11 @@ Keep this short; **details live in the commit log.**
 
 _Order: newest commit first. Copy the short hash from `git log --oneline`. Update after each commit._
 
+### 2026-05-11 — README product + architecture + testing (no env/secrets)
+
+- **Prompt**: On new branch from synced `main`, expand README with description, features, architecture and schema diagrams, testing/CI; omit env vars and sensitive operational copy; commit, push, PR.
+- **Result**: README rewritten around **docs/api-contract.md** + **AGENTS.md** links; Mermaid **flowchart** + **erDiagram**; feature table; testing table + `go test` / Actions; removed prior env tables, curl/flyway/psql bootstrap recipes, and secret-generation hints; operator note points to **`internal/config`** without naming keys. PR: https://github.com/aasnani/mainstory-digital-library-takehome/pull/11
+
 ### 2026-05-11 — Track Cursor agent rule; align submission after merge
 
 - **Prompt**: Merged PR omitted some `AGENTS.md` / `docs/submission.md` updates; remove rules that blocked shipping them; sync `main`, commit docs + rule visibility, open PR.
