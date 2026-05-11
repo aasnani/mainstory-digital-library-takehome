@@ -172,7 +172,3 @@ Returns **`UP`** when the process is running (this endpoint does not exercise th
 | **`db/migration/*.sql`** | Backend + DBAs | Canonical schema and constraints. |
 
 ---
-
-## Security note for operators
-
-This README avoids listing **environment variable names**, **connection string patterns**, **secret generation commands**, and **copy-paste migration credentials**. Treat deployment wiring, secrets, and database access as **operator documentation** stored alongside your infrastructure—not in this public overview.
