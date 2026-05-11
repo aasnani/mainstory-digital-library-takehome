@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"mainstory-digital-library-takehome/internal/api"
+	"mainstory-digital-library-takehome/internal/domain"
 	"mainstory-digital-library-takehome/internal/middleware"
 	"mainstory-digital-library-takehome/internal/service"
 )
@@ -39,6 +42,46 @@ func (h *EntitlementsHandler) List(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"entitlements": items})
+}
+
+// ListStaff is GET /entitlements/staff — librarian/admin browse with optional filters (same limit/offset rules as list).
+func (h *EntitlementsHandler) ListStaff(c *gin.Context) {
+	limit, offset, ok := parseLimitOffset(c)
+	if !ok {
+		return
+	}
+	filter, err := parseEntitlementStaffFilter(c)
+	if err != nil {
+		api.WriteError(c, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	items, err := h.svc.ListStaff(c.Request.Context(), filter, limit, offset)
+	if err != nil {
+		api.WriteErrorFromDomain(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"entitlements": items})
+}
+
+func parseEntitlementStaffFilter(c *gin.Context) (domain.EntitlementListFilter, error) {
+	var f domain.EntitlementListFilter
+	f.Type = strings.TrimSpace(c.Query("type"))
+	f.Status = strings.TrimSpace(c.Query("status"))
+	if v := strings.TrimSpace(c.Query("user_id")); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return f, fmt.Errorf("invalid user_id (expected UUID)")
+		}
+		f.UserID = &id
+	}
+	if v := strings.TrimSpace(c.Query("book_id")); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return f, fmt.Errorf("invalid book_id (expected UUID)")
+		}
+		f.BookID = &id
+	}
+	return f, nil
 }
 
 // GetByID loads one entitlement if the caller owns it or has staff role.

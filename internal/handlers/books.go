@@ -52,6 +52,24 @@ func (h *BooksHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"books": items})
 }
 
+// RecentlyAdded is GET /books/recent — fixed top five by added_at; same JSON row shape and optional auth as List.
+func (h *BooksHandler) RecentlyAdded(c *gin.Context) {
+	uid, uidOk := middleware.UserID(c)
+	role, roleOk := middleware.Role(c)
+	if !uidOk {
+		uid = uuid.Nil
+	}
+	if !roleOk {
+		role = ""
+	}
+	items, err := h.svc.RecentlyAdded(c.Request.Context(), uid, role)
+	if err != nil {
+		api.WriteErrorFromDomain(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"books": items})
+}
+
 // MyLibrary is GET /users/me/library — subscription snapshot + purchased books without full text payloads.
 func (h *BooksHandler) MyLibrary(c *gin.Context) {
 	uid, ok := middleware.UserID(c)

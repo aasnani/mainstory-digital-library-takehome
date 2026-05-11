@@ -20,6 +20,8 @@ type BookStore interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Book, error)
 	// ListCatalog returns catalog columns only (never loads content TEXT).
 	ListCatalog(ctx context.Context, filter domain.BookListFilter, limit, offset int32) ([]domain.Book, error)
+	// ListRecentCatalogTop5 returns up to five rows by added_at descending for home-page “new arrivals”; no content column.
+	ListRecentCatalogTop5(ctx context.Context) ([]domain.Book, error)
 	GetCatalogByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.Book, error)
 	Update(ctx context.Context, id uuid.UUID, title, description, author, genre string, isFiction bool, publishedDate interface{}, language string, priceCents int32, content string) (*domain.Book, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -108,6 +110,29 @@ func (r *BookRepository) ListCatalog(ctx context.Context, filter domain.BookList
 	args = append(args, limit, offset)
 
 	rows, err := r.pool.Query(ctx, b.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Book
+	for rows.Next() {
+		var bk domain.Book
+		if err := rows.Scan(&bk.ID, &bk.Title, &bk.Description, &bk.Author, &bk.Genre, &bk.IsFiction, &bk.PublishedDate, &bk.AddedAt, &bk.Language, &bk.PriceCents); err != nil {
+			return nil, err
+		}
+		out = append(out, bk)
+	}
+	return out, rows.Err()
+}
+
+// ListRecentCatalogTop5 orders by catalog ingestion time (added_at), newest first; capped at five rows.
+func (r *BookRepository) ListRecentCatalogTop5(ctx context.Context) ([]domain.Book, error) {
+	const q = `
+		SELECT id, title, description, author, genre, is_fiction, published_date, added_at, language, price_cents
+		FROM books
+		ORDER BY added_at DESC
+		LIMIT 5`
+	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}

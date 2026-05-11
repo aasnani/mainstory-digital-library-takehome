@@ -98,6 +98,37 @@ func TestEntitlementService_CancelMySubscription_NoActive(t *testing.T) {
 	}
 }
 
+func TestEntitlementService_ListStaff_FilterUser(t *testing.T) {
+	_, er := newFakeCatalog()
+	u1, u2 := uuid.New(), uuid.New()
+	bid := uuid.New()
+	er.books[bid] = true
+	_, _ = er.Create(context.Background(), u1, nil, domain.EntitlementSubscription, domain.EntitlementActive, ptrTime(time.Now().Add(24*time.Hour)), ptrTime(time.Now()))
+	_, _ = er.Create(context.Background(), u2, &bid, domain.EntitlementSinglePurchase, domain.EntitlementActive, nil, nil)
+
+	svc := NewEntitlementService(er)
+	out, err := svc.ListStaff(context.Background(), domain.EntitlementListFilter{UserID: &u2}, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].UserID != u2 {
+		t.Fatalf("%+v", out)
+	}
+}
+
+func TestEntitlementService_ListStaff_InvalidType(t *testing.T) {
+	_, er := newFakeCatalog()
+	svc := NewEntitlementService(er)
+	_, err := svc.ListStaff(context.Background(), domain.EntitlementListFilter{Type: "INVALID"}, 10, 0)
+	if !errors.Is(err, domain.ErrInvalidEntitlementType) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
+
 func TestEntitlementService_CancelMySubscription_IgnoresPurchaseRows(t *testing.T) {
 	_, er := newFakeCatalog()
 	u := uuid.New()

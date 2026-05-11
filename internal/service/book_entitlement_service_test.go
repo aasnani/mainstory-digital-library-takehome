@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,24 @@ func (f *fakeBookRepo) ListCatalog(ctx context.Context, filter domain.BookListFi
 	}
 	out := make([]domain.Book, end-int(offset))
 	copy(out, matched[int(offset):end])
+	return out, nil
+}
+
+func (f *fakeBookRepo) ListRecentCatalogTop5(ctx context.Context) ([]domain.Book, error) {
+	books := append([]domain.Book(nil), f.list...)
+	sort.Slice(books, func(i, j int) bool {
+		return books[i].AddedAt.After(books[j].AddedAt)
+	})
+	n := 5
+	if len(books) < n {
+		n = len(books)
+	}
+	out := make([]domain.Book, 0, n)
+	for i := 0; i < n; i++ {
+		bk := books[i]
+		bk.Content = ""
+		out = append(out, bk)
+	}
 	return out, nil
 }
 
@@ -241,6 +260,35 @@ func (f *fakeEntRepo) ListAll(ctx context.Context, limit, offset int32) ([]domai
 	}
 	out := make([]domain.Entitlement, end-int(offset))
 	copy(out, f.allEnt[int(offset):end])
+	return out, nil
+}
+
+func (f *fakeEntRepo) ListAllFiltered(ctx context.Context, filter domain.EntitlementListFilter, limit, offset int32) ([]domain.Entitlement, error) {
+	var matched []domain.Entitlement
+	for _, e := range f.allEnt {
+		if filter.UserID != nil && e.UserID != *filter.UserID {
+			continue
+		}
+		if filter.BookID != nil && (e.BookID == nil || *e.BookID != *filter.BookID) {
+			continue
+		}
+		if filter.Type != "" && e.Type != filter.Type {
+			continue
+		}
+		if filter.Status != "" && e.Status != filter.Status {
+			continue
+		}
+		matched = append(matched, e)
+	}
+	if int(offset) >= len(matched) {
+		return nil, nil
+	}
+	end := int(offset) + int(limit)
+	if end > len(matched) {
+		end = len(matched)
+	}
+	out := make([]domain.Entitlement, end-int(offset))
+	copy(out, matched[int(offset):end])
 	return out, nil
 }
 
@@ -474,6 +522,77 @@ func TestBookService_GuestList_AllLocked(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].IsAccessible || items[0].AccessReason != domain.AccessReasonLocked {
 		t.Fatalf("%+v", items)
+	}
+}
+
+func TestBookService_RecentlyAdded_Top5NewestFirst(t *testing.T) {
+	br, er := newFakeCatalog()
+	base := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
+	for i := range 7 {
+		id := uuid.New()
+		at := base.Add(time.Duration(i) * time.Hour)
+		b := &domain.Book{
+			ID: id, Title: "B", Language: "en", PriceCents: int32(i),
+			AddedAt: at, Content: "body",
+		}
+		br.byID[id] = b
+		br.list = append(br.list, *b)
+	}
+	// Shuffle insertion order in list to ensure service/repo sort by added_at, not slice order.
+	br.list[0], br.list[1], br.list[2], br.list[3], br.list[4], br.list[5], br.list[6] =
+		br.list[3], br.list[6], br.list[1], br.list[4], br.list[0], br.list[2], br.list[5]
+
+	svc := NewBookService(br, er)
+	items, err := svc.RecentlyAdded(context.Background(), uuid.Nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 5 {
+		t.Fatalf("want 5 items, got %d", len(items))
+	}
+	for i := range items {
+		if items[i].Content != "" {
+			t.Fatalf("item %d: content should be empty", i)
+		}
+		if items[i].IsAccessible || items[i].AccessReason != domain.AccessReasonLocked {
+			t.Fatalf("guest item %d: want locked", i)
+		}
+	}
+	// Newest five are added_at base+6h..+2h → price_cents 6,5,4,3,2
+	want := []int32{6, 5, 4, 3, 2}
+	for i, w := range want {
+		if items[i].PriceCents != w {
+			t.Fatalf("idx %d: price_cents=%d want %d (order newest first)", i, items[i].PriceCents, w)
+		}
+	}
+}
+
+func TestBookService_RecentlyAdded_SubscriptionMarksAccessible(t *testing.T) {
+	br, er := newFakeCatalog()
+	u := uuid.New()
+	oldT := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	newT := oldT.Add(24 * time.Hour)
+	oldID, newID := uuid.New(), uuid.New()
+	br.byID[oldID] = &domain.Book{ID: oldID, Title: "Old", Language: "en", PriceCents: 1, AddedAt: oldT}
+	br.byID[newID] = &domain.Book{ID: newID, Title: "New", Language: "en", PriceCents: 2, AddedAt: newT}
+	br.list = []domain.Book{*br.byID[oldID], *br.byID[newID]}
+	now := time.Now()
+	end := now.AddDate(0, 0, domain.SubscriptionPeriodDays)
+	_, _ = er.Create(context.Background(), u, nil, domain.EntitlementSubscription, domain.EntitlementActive, &end, &now)
+
+	svc := NewBookService(br, er)
+	items, err := svc.RecentlyAdded(context.Background(), u, domain.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d", len(items))
+	}
+	if items[0].ID != newID || !items[0].IsAccessible {
+		t.Fatalf("first should be newest and accessible: %+v", items[0])
+	}
+	if !items[1].IsAccessible {
+		t.Fatalf("second should be accessible with sub: %+v", items[1])
 	}
 }
 
