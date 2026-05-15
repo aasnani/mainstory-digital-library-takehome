@@ -1,4 +1,4 @@
-# Mainstory Digital Library (take-home backend)
+# Digital Library
 
 HTTP API for a **paid digital storybook library** MVP: **subscription** (all books while active) and **one-time purchases** (per book). This repository is a **Go** service using **Gin**, **PostgreSQL**, and **JWT bearer authentication**.
 
